@@ -1,0 +1,1 @@
+mysql+pymysql://user2:12345678@localhost/SchoolManagementDB
