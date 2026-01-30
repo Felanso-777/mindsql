@@ -48,9 +48,13 @@ def save_file(filename, content):
 def extract_tables(sql):
     parsed = sqlglot.parse_one(sql)
     tables = set()
-    for table in parsed.find_all(exp.Table):
-        tables.add(table.name)
-    return tables
+    alias_map = {}
+    for table in parsed.find_all(exp.Table):  
+        real_name = table.name     
+        tables.add(real_name)     #mapping tables from query and adding to set table
+        if table.alias:  # determining alias existence
+            alias_map[table.alias.name] = real_name
+    return tables, alias_map
 
 #--Extract column names from each query--
 def extract_columns(sql):
@@ -488,7 +492,9 @@ def shell():
                         generated_sql = extract_sql(response['message']['content']) or response['message']['content']  
 
                         #--to check working of extract_table() & extract_columns()
-                        print(f"tables found : \n{extract_tables(generated_sql)}\n") 
+                        tables, alias_map = extract_tables(generated_sql)
+                        print(f"Tables:\n{tables}\nAliases:\n{alias_map}")
+ 
                         print(f"\nColumns found \n{extract_columns(generated_sql)}\n")   
 
                     console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"), title="✨ Generated SQL", border_style="yellow", box=box.ROUNDED))

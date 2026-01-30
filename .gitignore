@@ -6,3 +6,6 @@ models/
 
 # Local config / secrets
 db_config.txt
+
+#db_connector logic
+db_connector.py
