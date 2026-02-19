@@ -18,20 +18,3 @@ mindsql_history.txt
 # Ignore OS-specific files
 .DS_Store
 __pycache__/
-# Python virtual environment
-venv/
-
-# ML / model artifacts
-models/
-
-# Local config / secrets
-db_config.txt
-
-#db_connector logic
-db_connector.py
-
-#trial_log
-trial_log.txt
-
-#schema file
-schema.txt
