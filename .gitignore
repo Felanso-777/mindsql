@@ -1,0 +1,20 @@
+# Ignore the virtual environment
+.venv/
+venv/
+env/
+bin/
+lib/
+include/
+
+# Ignore the AI models (GGUF files)
+models/
+*.gguf
+
+# Ignore SQLite databases and local config
+*.db
+db_config.txt
+mindsql_history.txt
+
+# Ignore OS-specific files
+.DS_Store
+__pycache__/
