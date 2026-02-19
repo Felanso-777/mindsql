@@ -1,3 +1,9 @@
+#SCHEMA_MAP = dict
+#tables = set
+#alias = dict
+#columns = list of dict
+#valid_tables = dict
+
 import typer
 import ollama
 import re
@@ -67,20 +73,59 @@ def extract_columns(sql):
     return columns
 
 #--Validate generated sql alongside the SCHEMA_MAP
-"""def validate_sql_schema(sql,SCHEMA_MAP):
-    tables = extract_tables(sql)
+def validate_sql_schema(sql,SCHEMA_MAP):
+    sql_upper  = sql.upper()
+    tables,alias = extract_tables(sql)
     columns = extract_columns(sql)
-    alias = {}
-    for table in tables :
-        #here we map alias to table 
-
-            
-     
-    for column in columns :
-        if column not in SCHEMA_MAP:
+    forbidden = ["CREATE","ALTER","DROP","DELETE"]
+    valid_tables ={}
+    #DDL cmd validation . prevents structural change.
+    for keyword in forbidden : 
+        if keyword in sql_upper : 
+            return False 
+    # table validation 
+    for table in tables : 
+        matched = None
+        for schema_table in SCHEMA_MAP :
+            if table.lower() == schema_table.lower() :
+                matched = schema_table
+                break
+        if matched is None :
             return False
-    
-    return True"""
+        valid_tables[table]=matched
+    #column & alias validation 
+    for column in columns :
+        col_table = column["table"]
+        col_name = column["column"]
+        # to get the table name from column list of dict. 3 cases : 
+        # case -1 : if alias used , multiple table exist in query
+        if col_table in alias :
+            real_table = alias[col_table]
+        # case -2 : if alias not used , multiple table exist in query
+        elif col_table in valid_tables :
+            real_table = col_table
+        # case -3 : if alias not used , only single exists in query
+        elif col_table is None :
+            if len(valid_tables) == 1 :
+                real_table = list(valid_tables.keys())[0]
+            else :
+                return False
+        else : 
+            return False
+        #checking if the obtain table exist in the SCHEMA_MAP
+        if real_table not in valid_tables :
+            return False
+        schema_table_name = valid_tables[real_table]
+        schema_columns = SCHEMA_MAP[schema_table_name]["columns"]
+        column_found = False
+        for schema_col in schema_columns :
+            if col_name.lower() == schema_col.lower():
+                column_found = True
+                break
+        if not column_found :
+            return False
+#if no false happens => safe         
+    return True
 
 #--Load Schema --
 def load_schema_map(engine):
@@ -313,10 +358,9 @@ def shell():
     schema_context = load_file(SCHEMA_FILE)
     style = Style.from_dict({ 'prompt': 'ansicyan bold' })
     session = PromptSession(history=FileHistory(HISTORY_FILE), style=style)
-    
-  #to check whether the dictionary schema_map is allocatted or not (debugging)  
-    schema_map = load_schema_map(engine)
-    print(schema_map)
+    print("VALID TABLES:", valid_tables)
+    print("SCHEMA MAP KEYS:", SCHEMA_MAP.keys())
+
 
     if engine: print_banner(db_url)
 
@@ -470,6 +514,8 @@ def shell():
                         "You are a strict SQL generator.\n"
                         "1. Output ONLY SQL code. Separate with semicolons (;).\n"
                         "2. VERIFY COLUMNS EXIST before writing.\n"
+                        "3. Use EXACT table names from schema (case-sensitive).\n"
+
                         f"\nContext:\n{schema_context}"
                     )},
                     {'role': 'user', 'content': natural_prompt}
@@ -500,11 +546,28 @@ def shell():
                     console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"), title="✨ Generated SQL", border_style="yellow", box=box.ROUNDED))
                     
                     
-                    if input("🚀 Execute SQL? (y/n): ").strip().lower() != 'y': break 
+                    if input("🚀 Execute SQL? (y/n): ").strip().lower() != 'y':
+                        break
+
+                    # VALIDATE BEFORE EXECUTE
+                    is_valid = validate_sql_schema(generated_sql, SCHEMA_MAP)
+                    if not is_valid:
+                        console.print(Panel(
+                            "[bold red]❌ Schema Validation Failed[/bold red]",
+                            style="red"
+                        ))
+                        continue
+                    else:
+                        console.print(Panel(
+                            "[bold green]✅ Schema Validation Passed[/bold green]",
+                            style="green"
+                        ))
+
 
                     try:
                         execute_sql(engine, generated_sql, raise_error=True)
-                        break 
+                        break
+
                     except Exception as e:
                         if attempt < MAX_RETRIES - 1:
                             console.print(f"[yellow]⚠ Error: {e}. Retrying...[/yellow]")
