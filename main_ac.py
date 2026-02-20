@@ -45,7 +45,8 @@ def load_file(filename):
         return None
     with open(filename, "r") as f:
         return f.read().strip()
-
+    
+#to save user credentials
 def save_file(filename, content):
     with open(filename, "w") as f:
         f.write(content)
@@ -135,12 +136,14 @@ def load_schema_map(engine):
     for table in table_names:
         columns = inspector.get_columns(table)
         column_names = [col["name"] for col in columns]
+        pk_constraint = inspector.get_pk_constraint(table)
+        primary_keys = pk_constraint.get("constrained_columns", [])
         foreign_keys=[]
         for fk in inspector.get_foreign_keys(table):
             foreign_keys.append({"child_columns" : fk["constrained_columns"],
                                  "parent_table" : fk["referred_table"],
                                  "parent_columns" : fk["referred_columns"]})
-        schema[table] = {"columns" : column_names,
+        schema[table] = {"columns" : column_names,"primary_keys": primary_keys,
                             "foreign_keys" : foreign_keys}
        
     return schema
@@ -148,16 +151,27 @@ def load_schema_map(engine):
 def extract_sql(text):
     # 1. Look for markdown blocks
     match = re.search(r"```sql\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-    if match: return match.group(1).strip()
-    match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
-    if match: return match.group(1).strip()
-    
-    # 2. Look for raw SQL statements (if no markdown)
-    clean_text = text.strip()
-    keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "SET", "ALTER", "BEGIN", "WITH"]
-    if any(clean_text.upper().startswith(k) for k in keywords):
-        return clean_text
-    return None
+    if match:
+        sql = match.group(1).strip()
+    else:
+        match = re.search(r"```\s*(.*?)\s*```", text, re.DOTALL)
+        if match:
+            sql = match.group(1).strip()
+        else:
+            clean_text = text.strip()
+            keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "SET", "ALTER", "BEGIN", "WITH"]
+            if any(clean_text.upper().startswith(k) for k in keywords):
+                sql = clean_text
+            else:
+                return None
+
+    # added centralised method to identify sql queries from non- sql queries
+    try:
+        sqlglot.parse_one(sql)
+        return sql
+    except Exception:
+        print("Failed. Try giving requests related to SQL")
+        return None
 
 # --to display the staring lines --
 def print_banner(db_url):
@@ -178,6 +192,33 @@ def print_banner(db_url):
         box=box.ROUNDED,
         padding=(1, 2)
     ))
+
+
+#to add schema to schema.txt
+
+def generate_schema_text(schema_map, schema_file):
+    with open(schema_file, "w") as f:
+        f.write("DATABASE SCHEMA\n")
+        f.write("================\n\n")
+
+        for table, info in schema_map.items():
+            f.write(f"TABLE: {table}\n")
+
+            for col in info["columns"]:
+                col_line = f"  - {col}"
+
+                if col in info.get("primary_keys", []):
+                    col_line += " (PRIMARY KEY)"
+
+                for fk in info.get("foreign_keys", []):
+                    if col in fk["child_columns"]:
+                        parent_table = fk["parent_table"]
+                        parent_column = fk["parent_columns"][0]
+                        col_line += f" (FOREIGN KEY → {parent_table}.{parent_column})"
+
+                f.write(col_line + "\n")
+
+            f.write("\n")
     
 #--Initialising DB connection--
 
@@ -185,27 +226,19 @@ def perform_connection(connection_string):
     with console.status(f"[bold blue]🔌 Connecting to {connection_string}...[/bold blue]", spinner="dots"):
         try:
             engine = create_engine(connection_string)
-            inspector = inspect(engine)
-            table_names = inspector.get_table_names()
-            
-            if not table_names:
-                console.print("[yellow]⚠ Connected, but DB is empty.[/yellow]")
-            else:
-                with open(SCHEMA_FILE, "w") as f:
-                    for table_name in table_names:
-                        columns = inspector.get_columns(table_name)
-                        f.write(f"CREATE TABLE {table_name} (\n")
-                        col_defs = []
-                        for col in columns:
-                            col_str = f"    {col['name']} {col['type']}"
-                            col_defs.append(col_str)
-                        f.write(",\n".join(col_defs))
-                        f.write("\n);\n\n")
-            
-            save_file(DB_URL_FILE, connection_string)
+
             global SCHEMA_MAP
             SCHEMA_MAP = load_schema_map(engine)
-            return engine, table_names
+
+            if not SCHEMA_MAP:
+                console.print("[yellow]⚠ Connected, but DB is empty.[/yellow]")
+            else:
+                generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
+
+            save_file(DB_URL_FILE, connection_string)
+
+            return engine, list(SCHEMA_MAP.keys())
+
         except Exception as e:
             console.print(Panel(f"[bold red]Connection Failed[/bold red]\n{e}", style="red"))
             return None, []
@@ -353,13 +386,15 @@ def shell():
     print("Initialising......")
     db_url = load_file(DB_URL_FILE)
     engine = None
-    if db_url: engine = create_engine(db_url)
-    
-    schema_context = load_file(SCHEMA_FILE)
+    if db_url:
+        # _ is Python convention for “unused variable”
+        engine, _ = perform_connection(db_url)
+        schema_context = load_file(SCHEMA_FILE)
+    else : 
+        schema_context = None
     style = Style.from_dict({ 'prompt': 'ansicyan bold' })
     session = PromptSession(history=FileHistory(HISTORY_FILE), style=style)
-    print("VALID TABLES:", valid_tables)
-    print("SCHEMA MAP KEYS:", SCHEMA_MAP.keys())
+    
 
 
     if engine: print_banner(db_url)
@@ -386,6 +421,8 @@ def shell():
                     db_url = target
                     schema_context = load_file(SCHEMA_FILE)
                     print_banner(target)
+                    print("VALID TABLES:", SCHEMA_MAP.keys())
+                    print("SCHEMA MAP :",SCHEMA_MAP )
                     
                 continue
 
