@@ -52,3 +52,30 @@
 
 # 2026-01-07 01:50:54.527578
 +exit
+
+# 2026-01-30 06:34:51.453821
++select * from Attendence;
+
+# 2026-01-30 06:36:26.667080
++exit
+
+# 2026-01-30 06:36:41.732041
++select * from Attendence;
+
+# 2026-01-30 06:37:01.085321
++show tables
+
+# 2026-01-30 06:37:15.798054
++select * from Attendence 
+
+# 2026-01-30 06:37:31.102800
++select * from Attendence ;
+
+# 2026-01-30 06:38:00.969036
++mindsql show course attendence of students of class 10a
+
+# 2026-01-30 06:44:47.818123
++select * from Attendance ;
+
+# 2026-01-30 06:51:41.854104
++exit
