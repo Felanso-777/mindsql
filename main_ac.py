@@ -6,6 +6,8 @@
 
 import typer
 import ollama
+import json
+import urllib.request
 import re
 import os
 import sys
@@ -46,6 +48,33 @@ SCHEMA_MAP     = {}  # Global schema cache populated on DB connection
 # --- Setup ---
 app = typer.Typer()
 console = Console()
+
+# =============================================================================
+# MODEL SETUP — Download or locate the local GGUF model
+# =============================================================================
+
+def download_model_with_progress(url: str, dest_path: str):
+    """Download the GGUF model file with a Rich progress bar."""
+    with Progress(
+        TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+        BarColumn(bar_width=None),
+        "[progress.percentage]{task.percentage:>3.1f}%",
+        "•", DownloadColumn(), "•", TransferSpeedColumn(), "•", TimeRemainingColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task("Downloading...", filename="bb.gguf", total=None)
+
+        def reporthook(block_num, block_size, total_size):
+            if progress.tasks[task].total is None and total_size > 0:
+                progress.update(task, total=total_size)
+            progress.update(task, advance=block_size)
+
+        try:
+            urllib.request.urlretrieve(url, dest_path, reporthook=reporthook)
+        except Exception as e:
+            console.print(f"\n[bold red] Download failed: {e}[/bold red]")
+            sys.exit(1)
+
 
 # --- Helpers ---
 
