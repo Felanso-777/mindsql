@@ -24,13 +24,23 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 
-# --- Configuration ---
-MODEL_NAME = "qwen2.5-coder:1.5b"
-SCHEMA_FILE = "schema.txt"
-DB_URL_FILE = "db_config.txt"
-HISTORY_FILE = "mindsql_history.txt"
-MAX_RETRIES = 3
-SCHEMA_MAP = {}
+# =============================================================================
+# PATHS & CONSTANTS
+# =============================================================================
+
+USER_HOME = Path.home() / ".mindsql"
+USER_HOME.mkdir(parents=True, exist_ok=True)
+
+SETTINGS_FILE  = USER_HOME / "settings.json"
+DEFAULT_MODEL_DIR = USER_HOME / "models"
+DEFAULT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+MODEL_DOWNLOAD_URL = "https://yourwebsite.com/downloads/bb.gguf"
+SCHEMA_FILE    = str(USER_HOME / "schema.txt")
+DB_URL_FILE    = str(USER_HOME / "db_config.txt")
+HISTORY_FILE   = str(USER_HOME / "mindsql_history.txt")
+MAX_RETRIES    = 3
+SCHEMA_MAP     = {}  # Global schema cache populated on DB connection
 
 
 # --- Setup ---
