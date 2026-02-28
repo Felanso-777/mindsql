@@ -25,6 +25,7 @@ from sqlalchemy.engine.url import make_url
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
+from pathlib import Path
 
 # =============================================================================
 # PATHS & CONSTANTS
