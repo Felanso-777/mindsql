@@ -17,4 +17,4 @@ mindsql_history.txt
 
 # Ignore OS-specific files
 .DS_Store
-__pycache__/
+__pycache__/ 
