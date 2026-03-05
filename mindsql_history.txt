@@ -79,3 +79,135 @@
 
 # 2026-01-30 06:51:41.854104
 +exit
+
+# 2026-02-10 10:56:59.126113
++mindsql show database
+
+# 2026-02-10 11:41:25.541788
++mindsql show tables in the school db
+
+# 2026-02-10 11:41:59.140697
++mindsql show tables
+
+# 2026-02-10 11:42:37.235996
++mindsql show the departments table
+
+# 2026-02-10 11:45:47.819911
++mindsql show attendece of students in class 10a coursewise
+
+# 2026-02-10 11:47:37.623857
++exit
+
+# 2026-02-11 10:45:41.004013
++mindsql what are the databases in this device
+
+# 2026-02-11 10:45:59.495926
++mindsql show the databases
+
+# 2026-02-11 10:46:22.398286
++mindsql_ans what are the tables in the database
+
+# 2026-02-11 10:47:26.937608
++show databases;
+
+# 2026-02-11 10:48:41.414685
++use database SchoolManagementDB;
+
+# 2026-02-11 10:48:55.142163
++mindsql show the tables
+
+# 2026-02-11 10:49:18.811361
++mindsql_ans describe table Students
+
+# 2026-02-11 10:51:52.559740
++exit
+
+# 2026-02-14 22:27:08.490205
++mindsql show all students
++
+
+# 2026-02-14 22:27:51.052950
++mindsql show all classes
+
+# 2026-02-14 22:28:33.056503
++mindsql show tables
+
+# 2026-02-14 22:28:59.827183
++mindsql show all class names 
+
+# 2026-02-14 22:29:36.965666
++mindsql_ans explain students with highest marks
++
+
+# 2026-02-14 22:31:45.647465
++mindsql_plot show students count per department
++
+
+# 2026-02-19 14:42:13.098437
++mindsql show tables in this db 
+
+# 2026-02-19 14:43:08.643022
++mindsql select all the datas from the table Students
+
+# 2026-02-19 14:55:18.844513
++exit
+
+# 2026-02-19 14:55:33.432147
++mindsql select all the datas from the table Students
+
+# 2026-02-19 15:01:27.513325
++mindsql_ans show java code to print hello world
+
+# 2026-02-19 15:02:37.931397
++exit
+
+# 2026-02-19 15:04:00.161739
++mindsql select all the datas from the table Students
+
+# 2026-02-19 15:42:38.592773
++exit
+
+# 2026-02-20 09:14:39.129052
++mindsql show details of students from class 10a
+
+# 2026-02-20 09:15:49.522105
++mindsql write a python to print hello world
+
+# 2026-02-20 09:16:49.898316
++mindsql show details in table course
+
+# 2026-02-20 09:41:01.248542
++connect
+
+# 2026-02-20 09:41:17.912955
++mindsql connect
+
+# 2026-02-20 09:42:09.369047
++mindsql connect SchoolManagementDB
+
+# 2026-02-20 09:43:01.049025
++mindsql show tables
+
+# 2026-02-20 14:47:25.532529
++mindsql connect SchoolManagementDB
+
+# 2026-02-20 15:12:05.274842
++mindsql connect mysql+pymysql://user:password@localhost/SchoolManagementDB
+
+# 2026-02-20 15:23:23.719638
++mindsql show course details table
+
+# 2026-02-20 15:25:08.448545
++mindsql_ans who is tony stark 
+
+# 2026-03-05 14:34:52.660820
++show tables;
+
+# 2026-03-05 14:35:15.995142
++mindsql show attendence of first 20 students
+
+# 2026-03-05 22:30:33.255305
++mindsql show databases
+
+# 2026-03-05 22:32:57.951533
++exit

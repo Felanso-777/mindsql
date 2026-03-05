@@ -15,3 +15,6 @@ trial_log.txt
 
 #schema file
 schema.txt
+
+#mindsql history
+mindsql_history.txt

@@ -1,54 +1,45 @@
-from sqlalchemy import create_engine, inspect
-import sys
+from sqlalchemy import create_engine
 
-def scan_database(connection_string):
-    """
-    Connects to the DB, reads table structures, and writes schema.txt
-    """
-    print(f"🔌 Connecting to: {connection_string}...")
+from rich.console import Console
+from rich.panel import Panel
 
-    try:
-        # 1. Connect to the Database
-        engine = create_engine(connection_string)
-        inspector = inspect(engine)
+from helper import (
+    load_schema_map,
+    generate_schema_text,
+    save_file
+)
 
-        # 2. Open schema.txt for writing
-        with open("schema.txt", "w") as f:
+console = Console()
 
-            # 3. Loop through all tables found in the DB
-            table_names = inspector.get_table_names()
+#--Initialising DB connection--
 
-            if not table_names:
-                print("⚠ No tables found in this database!")
-                return
+SCHEMA_FILE = "schema.txt"
+DB_URL_FILE = "db_config.txt"
 
-            print(f"✓ Found {len(table_names)} tables. analyzing...")
 
-            for table_name in table_names:
-                # Get columns for this table
-                columns = inspector.get_columns(table_name)
 
-                # Write the CREATE TABLE statement to the file
-                f.write(f"CREATE TABLE {table_name} (\n")
+SCHEMA_MAP = {}
 
-                col_defs = []
-                for col in columns:
-                    # Extract name and type (e.g., 'id INTEGER')
-                    col_str = f"    {col['name']} {col['type']}"
-                    col_defs.append(col_str)
+def perform_connection(connection_string):
+    with console.status(f"[bold blue]🔌 Connecting to {connection_string}...[/bold blue]", spinner="dots"):
+        try:
+            engine = create_engine(connection_string)
 
-                f.write(",\n".join(col_defs))
-                f.write("\n);\n\n")
+            global SCHEMA_MAP
+            SCHEMA_MAP = load_schema_map(engine)
 
-        print(f"✅ Success! Database structure saved to 'schema.txt'.")
+            if not SCHEMA_MAP:
+                console.print("[yellow]⚠ Connected, but DB is empty.[/yellow]")
+            else:
+                generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
 
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        sys.exit(1)
+            save_file(DB_URL_FILE, connection_string)
 
-if __name__ == "__main__":
-    # Allow running this file directly for testing
-    if len(sys.argv) > 1:
-        scan_database(sys.argv[1])
-    else:
-        print("Usage: python3 db_connector.py <connection_string>")
+            return engine, SCHEMA_MAP
+
+        except Exception as e:
+            #to be moved to apt place after alpha
+            console.print(Panel(f"[bold red]Connection Failed[/bold red]\n{e}", style="red"))
+            return None, []
+        
+
