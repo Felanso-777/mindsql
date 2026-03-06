@@ -197,12 +197,19 @@ def validate_sql_schema(sql,SCHEMA_MAP):
     sql_upper  = sql.upper()
     tables,alias = extract_tables(sql)
     columns = extract_columns(sql)
-    forbidden = ["CREATE","ALTER","DROP","DELETE"]
-    valid_tables ={}
-    #DDL cmd validation . prevents structural change.
-    for keyword in forbidden : 
-        if keyword in sql_upper : 
-            return False 
+    valid_tables = {}
+    
+    # DDL cmd validation. Asks user permission for structural changes and deletions.
+    forbidden = ["CREATE", "ALTER", "DROP", "DELETE", "RENAME", "TRUNCATE"]
+    if any(keyword in sql_upper for keyword in forbidden):
+        # 1. Print a warning using your existing Rich console
+        console.print("\n[bold red]⚠️  WARNING:[/bold red] Destructive or structural command detected!")
+        # 2. Ask for explicit user permission
+        choice = input("Are you sure you want to allow this command? (y/n): ").strip().lower()
+        if choice == 'y':
+            return True  # User approved: allow execution and skip normal column checks
+        else:
+            return False # User denied: block execution 
     # table validation 
     for table in tables : 
         matched = None
