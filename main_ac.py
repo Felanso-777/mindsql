@@ -37,7 +37,6 @@ from helper import (
     print_banner,
     draw_ascii_bar_chart,
     validate_plot_sql,
-    Table
 )
 
 
@@ -270,7 +269,11 @@ def shell():
                     console.print(Panel(full_response, title="🤖 AI Answer", border_style="green", box=box.ROUNDED))
                     
                     sql_code = extract_sql(full_response)
-                    
+
+                    # AI returned explanation not SQL
+                    if not sql_code:
+                        continue
+
                     is_valid = validate_sql_schema(sql_code, SCHEMA_MAP)
                     if not is_valid:
                         console.print(Panel(
