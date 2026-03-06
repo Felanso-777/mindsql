@@ -39,7 +39,7 @@ SETTINGS_FILE  = USER_HOME / "settings.json"
 DEFAULT_MODEL_DIR = USER_HOME / "models"
 DEFAULT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-MODEL_DOWNLOAD_URL = "https://yourwebsite.com/downloads/bb.gguf"
+MODEL_DOWNLOAD_URL = "https://huggingface.co/AKHILDEVCV/MindSQL-Model-GGUF/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf?download=true"
 SCHEMA_FILE    = str(USER_HOME / "schema.txt")
 DB_URL_FILE    = str(USER_HOME / "db_config.txt")
 HISTORY_FILE   = str(USER_HOME / "mindsql_history.txt")
@@ -51,12 +51,6 @@ SCHEMA_MAP     = {}  # Global schema cache populated on DB connection
 app = typer.Typer()
 console = Console()
 
-llm = Llama(
-    model_path=str(DEFAULT_MODEL_DIR / "E:/modelsforpackage/bb.gguf"),
-    n_ctx=4096,
-    n_threads=4,
-    verbose=False
-)
 
 # =============================================================================
 # MODEL SETUP — Download or locate the local GGUF model
@@ -71,7 +65,7 @@ def download_model_with_progress(url: str, dest_path: str):
         "•", DownloadColumn(), "•", TransferSpeedColumn(), "•", TimeRemainingColumn(),
         console=console
     ) as progress:
-        task = progress.add_task("Downloading...", filename="bb.gguf", total=None)
+        task = progress.add_task("Downloading...", filename="qwen2.5-coder-3b-instruct.Q4_K_M.gguf", total=None)
 
         def reporthook(block_num, block_size, total_size):
             if progress.tasks[task].total is None and total_size > 0:
@@ -83,6 +77,80 @@ def download_model_with_progress(url: str, dest_path: str):
         except Exception as e:
             console.print(f"\n[bold red] Download failed: {e}[/bold red]")
             sys.exit(1)
+
+def get_or_set_settings() -> dict:
+    settings = {}
+    
+    # 1. Safely load existing settings
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                settings = json.load(f)
+        except Exception:
+            pass # Ignore empty or corrupted files, start fresh
+
+    # 2. Check and prompt for Model Path
+    if "model_path" not in settings or not Path(settings["model_path"]).exists():
+        console.print(Panel("[bold cyan]MindSQL Setup[/bold cyan]\nLet's configure your AI Model."))
+        user_input = input("Save model to (Enter for default): ").strip()
+        model_dir = Path(user_input) if user_input else DEFAULT_MODEL_DIR
+        model_dir.mkdir(parents=True, exist_ok=True)
+        final_model_path = model_dir / "qwen2.5-coder-3b-instruct.Q4_K_M.gguf"
+
+        if not final_model_path.exists():
+            console.print("[bold yellow]📥 Downloading model...[/bold yellow]")
+            download_model_with_progress(MODEL_DOWNLOAD_URL, str(final_model_path))
+            file_size = final_model_path.stat().st_size
+            if file_size < 1_000_000:  # Less than 1 MB = definitely not a real model
+                console.print(f"[bold red]❌ Download failed — file too small ({file_size} bytes). Check the URL.[/bold red]")
+                final_model_path.unlink()  # Delete the bad file
+                sys.exit(1)
+
+            
+        else:
+            console.print(f"[bold green]✅ Model found locally at: {final_model_path}[/bold green]")
+            
+        settings["model_path"] = str(final_model_path)
+
+    # 3. Check and prompt for AI Memory (Tokens)
+    if "n_ctx" not in settings:
+        console.print("\n[bold cyan]🧠 AI Memory (Tokens) Setup[/bold cyan]")
+        console.print("  [green]1. Low[/green]    (2048)  - Best for older/low-end PCs")
+        console.print("  [yellow]2. Medium[/yellow] (4096)  - Recommended for most PCs")
+        console.print("  [red]3. High[/red]   (8192)  - Best for high-end PCs")
+        console.print("  [magenta]4. Max[/magenta]    (32768) - Full capacity (Requires massive RAM)")
+        console.print("  [cyan]5. Custom[/cyan] (Enter a specific number)")
+        
+        t_input = input("\nChoose an option (1-5) or press Enter for Medium: ").strip()
+        
+        token_map = {"1": 2048, "2": 4096, "3": 8192, "4": 32768}
+        if t_input in token_map:
+            settings["n_ctx"] = token_map[t_input]
+        elif t_input == "5":
+            c_input = input("Enter custom token amount (e.g., 1024): ").strip()
+            settings["n_ctx"] = int(c_input) if c_input.isdigit() else 4096
+        else:
+            settings["n_ctx"] = 4096 # Default to medium if they press Enter or mess up
+
+    # 4. Save and return safely
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f)
+        
+    return settings
+
+# Locate model and load LLM at startup
+USER_SETTINGS = get_or_set_settings()
+with console.status(f"[bold green]🧠 Loading Local LLM ({USER_SETTINGS['n_ctx']} tokens)...[/bold green]"):
+    try:
+        llm = Llama(
+            model_path=USER_SETTINGS["model_path"],
+            n_ctx=USER_SETTINGS["n_ctx"],
+            n_threads=4,
+            verbose=False
+        )
+    except Exception as e:
+        console.print(f"[bold red] Failed to load model: {e}[/bold red]")
+        sys.exit(1)
 
 
             
@@ -129,12 +197,19 @@ def validate_sql_schema(sql,SCHEMA_MAP):
     sql_upper  = sql.upper()
     tables,alias = extract_tables(sql)
     columns = extract_columns(sql)
-    forbidden = ["CREATE","ALTER","DROP","DELETE"]
-    valid_tables ={}
-    #DDL cmd validation . prevents structural change.
-    for keyword in forbidden : 
-        if keyword in sql_upper : 
-            return False 
+    valid_tables = {}
+    
+    # DDL cmd validation. Asks user permission for structural changes and deletions.
+    forbidden = ["CREATE", "ALTER", "DROP", "DELETE", "RENAME", "TRUNCATE"]
+    if any(keyword in sql_upper for keyword in forbidden):
+        # 1. Print a warning using your existing Rich console
+        console.print("\n[bold red]⚠️  WARNING:[/bold red] Destructive or structural command detected!")
+        # 2. Ask for explicit user permission
+        choice = input("Are you sure you want to allow this command? (y/n): ").strip().lower()
+        if choice == 'y':
+            return True  # User approved: allow execution and skip normal column checks
+        else:
+            return False # User denied: block execution 
     # table validation 
     for table in tables : 
         matched = None
@@ -427,10 +502,6 @@ def mindsql_start(messages: list) -> str | None:
     
 
 # --- Commands ---
-
-@app.command()
-def connect(connection_string: str):
-    pass 
 
 @app.command()
 def shell():
