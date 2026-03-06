@@ -497,10 +497,6 @@ def mindsql_start(messages: list) -> str | None:
 # --- Commands ---
 
 @app.command()
-def connect(connection_string: str):
-    pass 
-
-@app.command()
 def shell():
     print("Initialising......")
     db_url = load_file(DB_URL_FILE)
