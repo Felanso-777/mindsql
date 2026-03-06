@@ -552,7 +552,14 @@ def shell():
     
 
 
-    if engine: print_banner(db_url)
+    if engine:
+        print_banner(db_url)
+    else:
+        console.print(Panel(
+            "[bold cyan]Welcome to MindSQL![/bold cyan]\n\n"
+            "Type [bold green]connect[/bold green] to login with your database credentials.",
+            border_style="blue", box=box.ROUNDED, padding=(1, 2)
+        ))
 
     while True:
         try:
