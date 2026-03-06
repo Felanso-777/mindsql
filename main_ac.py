@@ -5,7 +5,10 @@
 #valid_tables = dict
 
 import typer
-import ollama
+from llama_cpp import Llama
+from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
+import json
+import urllib.request
 import re
 import os
 import sys
@@ -23,19 +26,67 @@ from sqlalchemy.engine.url import make_url
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
+from pathlib import Path
 
-# --- Configuration ---
-MODEL_NAME = "qwen2.5-coder:1.5b"
-SCHEMA_FILE = "schema.txt"
-DB_URL_FILE = "db_config.txt"
-HISTORY_FILE = "mindsql_history.txt"
-MAX_RETRIES = 3
-SCHEMA_MAP = {}
+# =============================================================================
+# PATHS & CONSTANTS
+# =============================================================================
+
+USER_HOME = Path.home() / ".mindsql"
+USER_HOME.mkdir(parents=True, exist_ok=True)
+
+SETTINGS_FILE  = USER_HOME / "settings.json"
+DEFAULT_MODEL_DIR = USER_HOME / "models"
+DEFAULT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+MODEL_DOWNLOAD_URL = "https://yourwebsite.com/downloads/bb.gguf"
+SCHEMA_FILE    = str(USER_HOME / "schema.txt")
+DB_URL_FILE    = str(USER_HOME / "db_config.txt")
+HISTORY_FILE   = str(USER_HOME / "mindsql_history.txt")
+MAX_RETRIES    = 3
+SCHEMA_MAP     = {}  # Global schema cache populated on DB connection
 
 
 # --- Setup ---
 app = typer.Typer()
 console = Console()
+
+llm = Llama(
+    model_path=str(DEFAULT_MODEL_DIR / "E:/modelsforpackage/bb.gguf"),
+    n_ctx=4096,
+    n_threads=4,
+    verbose=False
+)
+
+# =============================================================================
+# MODEL SETUP — Download or locate the local GGUF model
+# =============================================================================
+
+def download_model_with_progress(url: str, dest_path: str):
+    """Download the GGUF model file with a Rich progress bar."""
+    with Progress(
+        TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
+        BarColumn(bar_width=None),
+        "[progress.percentage]{task.percentage:>3.1f}%",
+        "•", DownloadColumn(), "•", TransferSpeedColumn(), "•", TimeRemainingColumn(),
+        console=console
+    ) as progress:
+        task = progress.add_task("Downloading...", filename="bb.gguf", total=None)
+
+        def reporthook(block_num, block_size, total_size):
+            if progress.tasks[task].total is None and total_size > 0:
+                progress.update(task, total=total_size)
+            progress.update(task, advance=block_size)
+
+        try:
+            urllib.request.urlretrieve(url, dest_path, reporthook=reporthook)
+        except Exception as e:
+            console.print(f"\n[bold red] Download failed: {e}[/bold red]")
+            sys.exit(1)
+
+
+            
+
 
 # --- Helpers ---
 
@@ -43,12 +94,12 @@ console = Console()
 def load_file(filename):
     if not os.path.exists(filename):
         return None
-    with open(filename, "r") as f:
+    with open(filename, "r", encoding="utf-8") as f: # Fix UnicodeEncodeError on Windows by enforcing utf-8 encoding
         return f.read().strip()
     
 #to save user credentials
 def save_file(filename, content):
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
 
 #--Extract table names from each query--
@@ -197,7 +248,7 @@ def print_banner(db_url):
 #to add schema to schema.txt
 
 def generate_schema_text(schema_map, schema_file):
-    with open(schema_file, "w") as f:
+    with open(schema_file, "w", encoding="utf-8") as f: 
         f.write("DATABASE SCHEMA\n")
         f.write("================\n\n")
 
@@ -359,18 +410,18 @@ def execute_sql(engine, sql: str, raise_error=False, return_data=False):
             raise e
         console.print(Panel(f"[bold red]SQL Execution Error[/bold red]\n{e}", style="red", box=box.ROUNDED))
         return None
-def mindsql_start(messages):
-    response = ollama.chat(model=MODEL_NAME, messages=messages)
+def mindsql_start(messages: list) -> str | None:
+    """Send messages to the local LLM and extract SQL from the response."""
+    response = llm.create_chat_completion(messages=messages, temperature=0.1)
 
     print("\n[AI RESPONSE DEBUG]")
     print("Raw response length:", len(str(response)))
 
-    ai_text = response.message.content
+    ai_text = response['choices'][0]['message']['content']
     print("AI output length:", len(ai_text))
     print("AI output preview:", ai_text[:200])
 
-    sql_code = extract_sql(ai_text)
-    return sql_code
+    return extract_sql(ai_text)
 
 
     
@@ -454,9 +505,9 @@ def shell():
                 ]
                 print(
                    "Understanding user query\n"
-                   f"Mode : Plot Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]["content"])}\n"
-                   f"User prompt length: {len(messages[1]["content"])}\n"
-                   "Schema included:", "Context:" in messages[0]["content"]
+                   f"Mode : Plot Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
+                   f"User prompt length: {len(messages[1]['content'])}\n"
+                   "Schema included:", "Context:" in messages[0]['content']
                 )
                 with console.status(f"[bold yellow]📊 Generating Plot Data...[/bold yellow]", spinner="earth"):
                     sql_code = mindsql_start(messages)
@@ -502,20 +553,16 @@ def shell():
                 ]
                 print(
                    "Understanding user query\n"
-                   f"Mode : Chat Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]["content"])}\n"
-                   f"User prompt length: {len(messages[1]["content"])}\n"
+                   f"Mode : Chat Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
+                   f"User prompt length: {len(messages[1]['content'])}\n"
                    "Schema included:", "Context:" in messages[0]["content"]
                 )
 
                 for attempt in range(MAX_RETRIES):
                     with console.status(f"[bold green]💬 Asking AI (Attempt {attempt+1})...[/bold green]", spinner="dots"):
-                        response = ollama.chat(model=MODEL_NAME, messages=messages)
-                        print("\n[AI RESPONSE DEBUG]")                       
-                        print("Raw response length:", len(str(response)))
-                        full_response = response['message']['content']
-                        ai_text = response.message.content
-                        print("AI output length:", len(ai_text))
-                        print("AI output preview:", ai_text[:200])
+                        response = llm.create_chat_completion(messages=messages, temperature=0.1)
+                        full_response = response['choices'][0]['message']['content']
+                        ai_text = full_response
                     
                     console.print(Panel(full_response, title="🤖 AI Answer", border_style="green", box=box.ROUNDED))
                     
@@ -559,20 +606,16 @@ def shell():
                 ]
                 print(
                    "Understanding user query\n"
-                   f"Mode : Strict ai  Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]["content"])}\n"
-                   f"User prompt length: {len(messages[1]["content"])}\n"
-                   "Schema included:", "Context:" in messages[0]["content"]
+                   f"Mode : Strict ai  Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
+                   f"User prompt length: {len(messages[1]['content'])}\n"
+                   "Schema included:", "Context:" in messages[0]['content']
                 )
                 for attempt in range(MAX_RETRIES):
                     with console.status(f"[bold yellow]🧠 Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
-                        response = ollama.chat(model=MODEL_NAME, messages=messages)
-                        print("\n[AI RESPONSE DEBUG]")
-                        print("Raw response length:", len(str(response)))
-                        ai_text = response.message.content
-                        print("AI output length:", len(ai_text))
-                        print("AI output preview:", ai_text[:200])
+                        response = llm.create_chat_completion(messages=messages, temperature=0.1)
+                        ai_text = response['choices'][0]['message']['content']
                         
-                        generated_sql = extract_sql(response['message']['content']) or response['message']['content']  
+                        generated_sql = extract_sql(ai_text) or ai_text  
 
                         #--to check working of extract_table() & extract_columns()
                         tables, alias_map = extract_tables(generated_sql)
