@@ -39,7 +39,7 @@ SETTINGS_FILE  = USER_HOME / "settings.json"
 DEFAULT_MODEL_DIR = USER_HOME / "models"
 DEFAULT_MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-MODEL_DOWNLOAD_URL = "https://yourwebsite.com/downloads/bb.gguf"
+MODEL_DOWNLOAD_URL = "https://huggingface.co/AKHILDEVCV/MindSQL-Model-GGUF/resolve/main/qwen2.5-coder-3b-instruct.Q4_K_M.gguf?download=true"
 SCHEMA_FILE    = str(USER_HOME / "schema.txt")
 DB_URL_FILE    = str(USER_HOME / "db_config.txt")
 HISTORY_FILE   = str(USER_HOME / "mindsql_history.txt")
@@ -65,7 +65,7 @@ def download_model_with_progress(url: str, dest_path: str):
         "•", DownloadColumn(), "•", TransferSpeedColumn(), "•", TimeRemainingColumn(),
         console=console
     ) as progress:
-        task = progress.add_task("Downloading...", filename="bb.gguf", total=None)
+        task = progress.add_task("Downloading...", filename="qwen2.5-coder-3b-instruct.Q4_K_M.gguf", total=None)
 
         def reporthook(block_num, block_size, total_size):
             if progress.tasks[task].total is None and total_size > 0:
