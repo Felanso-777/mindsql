@@ -506,8 +506,36 @@ def mindsql_start(messages: list) -> str | None:
 @app.command()
 def shell():
     print("Initialising......")
-    db_url = load_file(DB_URL_FILE)
-    engine = None
+    global SCHEMA_MAP
+    # --- Session state ---
+    db_url        = load_file(DB_URL_FILE)  # Last used DB URL (persisted)
+    engine        = None   # Active DB engine (requires a selected database)
+    server_engine = None   # Server-level engine (no DB) for SHOW DATABASES / switch
+    schema_context = ""    # Schema text injected into LLM prompts
+
+    # Stores login credentials in memory so switching DBs never needs re-login
+    base_credentials = {"user": None, "password": None, "host": None, "dialect": "mysql+pymysql"}
+
+    # --- Credential helpers ---
+    def build_url(target_db: str) -> str:
+        """Construct a full DB URL from cached credentials + target database name."""
+        return (f"{base_credentials['dialect']}://"
+                f"{base_credentials['user']}:{base_credentials['password']}@"
+                f"{base_credentials['host']}/{target_db}")
+
+    def cache_credentials(user: str, password: str, host: str, dialect: str = "mysql+pymysql"):
+        """Save login credentials to the in-memory store."""
+        base_credentials.update({"user": user, "password": password,
+                                  "host": host, "dialect": dialect})
+
+    def parse_credentials_from_url(url_str: str):
+        """Restore cached credentials from a saved URL string (used on startup)."""
+        try:
+            parsed = make_url(url_str)
+            cache_credentials(parsed.username, parsed.password,
+                              parsed.host, parsed.drivername)
+        except Exception:
+            pass
     if db_url:
         # _ is Python convention for “unused variable”
         engine, _ = perform_connection(db_url)
