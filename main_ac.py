@@ -51,12 +51,6 @@ SCHEMA_MAP     = {}  # Global schema cache populated on DB connection
 app = typer.Typer()
 console = Console()
 
-llm = Llama(
-    model_path=str(DEFAULT_MODEL_DIR / "E:/modelsforpackage/bb.gguf"),
-    n_ctx=4096,
-    n_threads=4,
-    verbose=False
-)
 
 # =============================================================================
 # MODEL SETUP — Download or locate the local GGUF model
