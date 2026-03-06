@@ -536,14 +536,19 @@ def shell():
                               parsed.host, parsed.drivername)
         except Exception:
             pass
+
+# --- Restore previous session if a saved URL exists ---
     if db_url:
         # _ is Python convention for “unused variable”
+        parse_credentials_from_url(db_url)
         engine, _ = perform_connection(db_url)
-        schema_context = load_file(SCHEMA_FILE)
-    else : 
-        schema_context = None
-    style = Style.from_dict({ 'prompt': 'ansicyan bold' })
-    session = PromptSession(history=FileHistory(HISTORY_FILE), style=style)
+        schema_context = load_file(SCHEMA_FILE) or ""
+
+        # --- Prompt session setup ---
+    session = PromptSession(
+        history=FileHistory(HISTORY_FILE),
+        style=Style.from_dict({'prompt': 'ansicyan bold'}),
+    )
     
 
 
