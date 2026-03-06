@@ -84,6 +84,80 @@ def download_model_with_progress(url: str, dest_path: str):
             console.print(f"\n[bold red] Download failed: {e}[/bold red]")
             sys.exit(1)
 
+def get_or_set_settings() -> dict:
+    settings = {}
+    
+    # 1. Safely load existing settings
+    if SETTINGS_FILE.exists():
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                settings = json.load(f)
+        except Exception:
+            pass # Ignore empty or corrupted files, start fresh
+
+    # 2. Check and prompt for Model Path
+    if "model_path" not in settings or not Path(settings["model_path"]).exists():
+        console.print(Panel("[bold cyan]MindSQL Setup[/bold cyan]\nLet's configure your AI Model."))
+        user_input = input("Save model to (Enter for default): ").strip()
+        model_dir = Path(user_input) if user_input else DEFAULT_MODEL_DIR
+        model_dir.mkdir(parents=True, exist_ok=True)
+        final_model_path = model_dir / "qwen2.5-coder-3b-instruct.Q4_K_M.gguf"
+
+        if not final_model_path.exists():
+            console.print("[bold yellow]📥 Downloading model...[/bold yellow]")
+            download_model_with_progress(MODEL_DOWNLOAD_URL, str(final_model_path))
+            file_size = final_model_path.stat().st_size
+            if file_size < 1_000_000:  # Less than 1 MB = definitely not a real model
+                console.print(f"[bold red]❌ Download failed — file too small ({file_size} bytes). Check the URL.[/bold red]")
+                final_model_path.unlink()  # Delete the bad file
+                sys.exit(1)
+
+            
+        else:
+            console.print(f"[bold green]✅ Model found locally at: {final_model_path}[/bold green]")
+            
+        settings["model_path"] = str(final_model_path)
+
+    # 3. Check and prompt for AI Memory (Tokens)
+    if "n_ctx" not in settings:
+        console.print("\n[bold cyan]🧠 AI Memory (Tokens) Setup[/bold cyan]")
+        console.print("  [green]1. Low[/green]    (2048)  - Best for older/low-end PCs")
+        console.print("  [yellow]2. Medium[/yellow] (4096)  - Recommended for most PCs")
+        console.print("  [red]3. High[/red]   (8192)  - Best for high-end PCs")
+        console.print("  [magenta]4. Max[/magenta]    (32768) - Full capacity (Requires massive RAM)")
+        console.print("  [cyan]5. Custom[/cyan] (Enter a specific number)")
+        
+        t_input = input("\nChoose an option (1-5) or press Enter for Medium: ").strip()
+        
+        token_map = {"1": 2048, "2": 4096, "3": 8192, "4": 32768}
+        if t_input in token_map:
+            settings["n_ctx"] = token_map[t_input]
+        elif t_input == "5":
+            c_input = input("Enter custom token amount (e.g., 1024): ").strip()
+            settings["n_ctx"] = int(c_input) if c_input.isdigit() else 4096
+        else:
+            settings["n_ctx"] = 4096 # Default to medium if they press Enter or mess up
+
+    # 4. Save and return safely
+    with open(SETTINGS_FILE, "w") as f:
+        json.dump(settings, f)
+        
+    return settings
+
+# Locate model and load LLM at startup
+USER_SETTINGS = get_or_set_settings()
+with console.status(f"[bold green]🧠 Loading Local LLM ({USER_SETTINGS['n_ctx']} tokens)...[/bold green]"):
+    try:
+        llm = Llama(
+            model_path=USER_SETTINGS["model_path"],
+            n_ctx=USER_SETTINGS["n_ctx"],
+            n_threads=4,
+            verbose=False
+        )
+    except Exception as e:
+        console.print(f"[bold red] Failed to load model: {e}[/bold red]")
+        sys.exit(1)
+
 
             
 
