@@ -14,6 +14,16 @@ from sqlalchemy.engine.url import make_url
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
+from sql_autofill import generate_suggestions  # for new feature
+import sql_autofill
+print("Autofill file path:", sql_autofill.__file__)
+from sql_completer import SQLCompleter  # for new feature
+
+
+
+
+
+
 
 # --- Llama.cpp Integration ---
 from llama_cpp import Llama
@@ -168,10 +178,27 @@ def execute_sql(engine, sql: str, raise_error=False, return_data=False):
 @app.command()
 def shell():
     db_url = load_file(DB_URL_FILE)
-    engine = create_engine(db_url) if db_url else None
-    schema_context = load_file(SCHEMA_FILE)
+    #engine = create_engine(db_url) if db_url else None
+    #schema_context = load_file(SCHEMA_FILE)
+    engine = None
+    schema_context = None
+
+    if db_url:
+    # FORCE schema regeneration on startup
+        engine, _ = perform_connection(db_url)
+        schema_context = load_file(SCHEMA_FILE)
+    print("DEBUG: Schema loaded =", schema_context is not None)
+    print("DEBUG: Schema length =", len(schema_context) if schema_context else 0)
     style = Style.from_dict({ 'prompt': 'ansicyan bold' })
-    session = PromptSession(history=FileHistory(HISTORY_FILE), style=style)
+    #session = PromptSession(history=FileHistory(HISTORY_FILE), style=style)
+    completer = SQLCompleter(schema_context)  # for new feature
+    session = PromptSession(
+    history=FileHistory(HISTORY_FILE),
+    style=style,
+    completer=completer,        # for new feature
+    complete_while_typing=True  # for new feature
+)
+
 
     if engine: print_banner(db_url)
 
