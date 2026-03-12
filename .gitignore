@@ -1,17 +1,20 @@
-# Python virtual environment
+# Ignore the virtual environment
+.venv/
 venv/
+env/
+bin/
+lib/
+include/
 
-# ML / model artifacts
+# Ignore the AI models (GGUF files)
 models/
+*.gguf
 
-# Local config / secrets
+# Ignore SQLite databases and local config
+*.db
 db_config.txt
+mindsql_history.txt
 
-#db_connector logic
-db_connector.py
-
-#trial_log
-trial_log.txt
-
-#schema file
-schema.txt
+# Ignore OS-specific files
+.DS_Store
+__pycache__/
