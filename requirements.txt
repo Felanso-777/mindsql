@@ -1,0 +1,8 @@
+typer
+sqlglot
+rich
+SQLAlchemy
+PyMySQL
+cryptography
+prompt_toolkit
+llama-cpp-python
