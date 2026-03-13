@@ -598,6 +598,23 @@ def shell():
                     console.print(f"[red] Could not switch to '{target_db}': {e}[/red]")
                 continue
 
+            # CMD: SET_TOKENS — Adjust LLM context window memory
+
+            elif clean_input.lower().startswith("set_tokens "):
+                parts = clean_input.split(" ")
+                if len(parts) == 2 and parts[1].isdigit():
+                    new_tokens = int(parts[1])
+                    with open(SETTINGS_FILE, "r") as f:
+                        settings = json.load(f)
+                    settings["n_ctx"] = new_tokens
+                    with open(SETTINGS_FILE, "w") as f:
+                        json.dump(settings, f)
+                    console.print(f"[bold green]✅ Token limit saved as {new_tokens}.[/bold green]")
+                    console.print("[yellow]🔄 Please type 'exit' and restart MindSQL to apply the new memory settings.[/yellow]")
+                else:
+                    console.print("[red]Invalid usage. Example: set_tokens 4096[/red]")
+                continue
+
             # --- PLOT MODE ---
 
             if user_input.lower().startswith("mindsql_plot"):
