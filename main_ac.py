@@ -870,6 +870,13 @@ def shell():
 
                     try:
                         execute_sql(engine, generated_sql, raise_error=True)
+                        # --- AI REFRESH LOGIC ---
+                        if any(kw in generated_sql.upper() for kw in ["CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE"]):
+                            SCHEMA_MAP = load_schema_map(engine)
+                            generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
+                            schema_context = load_file(SCHEMA_FILE) or ""
+                            console.print("[dim green]🔄 Schema cache updated by AI![/dim green]")
+                        # ------------------------
                         break
 
                     except Exception as e:
@@ -897,6 +904,17 @@ def shell():
                     continue
 
                 execute_sql(engine, user_input)
+                # --- REFRESH LOGIC ---
+                # If the query changes the database structure, refresh the schema map and text file
+                if any(keyword in clean_input.upper() for keyword in ["CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE"]):
+                    SCHEMA_MAP = load_schema_map(engine)
+                    generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
+                    
+                    # Update the context for the LLM and the autocomplete engine
+                    schema_context = load_file(SCHEMA_FILE) or ""
+                    
+                    console.print("[dim green]🔄 Schema cache updated![/dim green]")
+                # --- NEW REFRESH LOGIC ENDS HERE ---
 
 
         except KeyboardInterrupt: continue
