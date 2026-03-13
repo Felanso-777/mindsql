@@ -717,6 +717,27 @@ def shell():
                 session.is_password = False
                 continue
 
+            # CMD: CONNECT db_name — Direct DB switch without wizard
+            elif clean_input.lower().startswith("connect "):
+                if not base_credentials["user"]:
+                    console.print("[red] Please 'connect' first to set credentials.[/red]")
+                    continue
+
+                target_db_name = clean_input.split("connect ", 1)[1].strip()
+                try:
+                    new_url    = build_url(target_db_name)
+                    new_engine, _ = perform_connection(new_url)
+                    if new_engine:
+                        engine         = new_engine
+                        db_url         = new_url
+                        schema_context = load_file(SCHEMA_FILE) or ""
+                        print_banner(new_url)
+                    else:
+                        console.print(f"[red] Could not connect to '{target_db_name}'.[/red]")
+                except Exception as e:
+                    console.print(f"[red] Error: {e}[/red]")
+                continue
+
             # --- PLOT MODE ---
 
             if user_input.lower().startswith("mindsql_plot"):
