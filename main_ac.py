@@ -561,32 +561,21 @@ def shell():
             border_style="blue", box=box.ROUNDED, padding=(1, 2)
         ))
 
-    while True:
+while True:
         try:
-            user_input = session.prompt([('class:prompt', 'SQL> ')]).strip()
-            print("User typed : ",user_input)
-            if not user_input: continue
-            
-            if user_input.lower().startswith("sql>"): user_input = user_input[4:].strip()
-            if user_input.lower() in ["exit", "quit"]: break
-            print("Establishing connection with DB....")
-            if user_input.lower().startswith("mindsql connect ") or user_input.lower().startswith("connect "):
-                target = user_input.split("connect ", 1)[1].strip()
-                if "://" not in target and db_url:
-                    try:
-                        target = str(make_url(db_url).set(database=target))
-                    except: pass
-                
-                new_engine, tables = perform_connection(target)
-                if new_engine:
-                    engine = new_engine
-                    db_url = target
-                    schema_context = load_file(SCHEMA_FILE)
-                    print_banner(target)
-                    print("VALID TABLES:", SCHEMA_MAP.keys())
-                    print("SCHEMA MAP :",SCHEMA_MAP )
-                    
+            # Show current DB name in prompt, or 'no db' if none selected
+            current_db = make_url(db_url).database if db_url else "no db"
+            user_input = session.prompt([
+                ('class:prompt', f'SQL ({current_db})> ')
+            ]).strip()
+            if not user_input:
                 continue
+
+            # Strip trailing semicolon for internal command matching
+            clean_input = user_input.rstrip(';').strip()
+
+            if user_input.lower() in ["exit", "quit"]:
+                break
 
             # --- PLOT MODE ---
 
