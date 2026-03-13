@@ -660,6 +660,63 @@ def shell():
                     console.print(f"[red] Could not fetch databases: {e}[/red]")
                 continue
 
+            # CMD: CONNECT — Full login wizard with server + DB selection
+            elif clean_input.lower() in ["connect", "mindsql connect"]:
+                console.print(Panel("[bold cyan]🔐 Server Login[/bold cyan]", box=box.ROUNDED))
+                c_user = session.prompt([('class:prompt', 'Username (e.g., root): ')]).strip() or "root"
+                c_pass = session.prompt([('class:prompt', 'Password: ')], is_password=True).strip()
+                c_host = session.prompt([('class:prompt', 'Host (default: localhost): ')]).strip() or "localhost"
+
+                server_url = f"mysql+pymysql://{c_user}:{c_pass}@{c_host}/"
+
+                try:
+                    # Verify credentials and fetch accessible databases
+                    with console.status(f"[bold blue]Verifying credentials...[/bold blue]"):
+                        temp_engine = create_engine(server_url)
+                        with temp_engine.connect() as conn:
+                            db_list = [row[0] for row in conn.execute(text("SHOW DATABASES;")).fetchall()]
+
+                    console.print("\n[bold green]✅ Login Successful![/bold green]")
+                    console.print("[bold cyan]Select a database:[/bold cyan]")
+                    for idx, name in enumerate(db_list, 1):
+                        console.print(f"  [bold yellow]{idx}.[/bold yellow] {name}")
+
+                    choice = session.prompt([('class:prompt', '\nEnter number or name: ')]).strip()
+
+                    target_db = None
+                    if choice.isdigit() and 1 <= int(choice) <= len(db_list):
+                        target_db = db_list[int(choice) - 1]
+                    elif choice in db_list:
+                        target_db = choice
+
+                    # Always cache credentials after successful login
+                    cache_credentials(c_user, c_pass, c_host)
+
+                    if not target_db:
+                        # No DB chosen — keep server engine alive for navigation
+                        console.print(
+                            "[yellow]⚠ No database selected. "
+                            "Type 'use <db_name>' or 'switch' to select one.[/yellow]"
+                        )
+                        engine         = None
+                        db_url         = None
+                        schema_context = ""
+                        server_engine  = create_engine(server_url)  # navigation-only engine
+                    else:
+                        final_url  = f"mysql+pymysql://{c_user}:{c_pass}@{c_host}/{target_db}"
+                        new_engine, _ = perform_connection(final_url)
+                        if new_engine:
+                            engine         = new_engine
+                            db_url         = final_url
+                            schema_context = load_file(SCHEMA_FILE) or ""
+                            print_banner(final_url)
+
+                except Exception as e:
+                    console.print(f"[red] Login Failed: {e}[/red]")
+
+                session.is_password = False
+                continue
+
             # --- PLOT MODE ---
 
             if user_input.lower().startswith("mindsql_plot"):
