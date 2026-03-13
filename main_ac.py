@@ -209,7 +209,7 @@ def validate_sql_schema(sql,SCHEMA_MAP):
         if choice == 'y':
             return True  # User approved: allow execution and skip normal column checks
         else:
-            return False # User denied: block execution 
+            return None # User denied: block execution 
     # table validation 
     for table in tables : 
         matched = None
@@ -785,7 +785,7 @@ def shell():
 
                 #--reptition 1 end---
 
-            # --- CHAT MODE (Updated for Chain of Thought) ---
+            # CMD --- CHAT MODE (Updated for Chain of Thought) ---
             elif user_input.lower().startswith("mindsql_ans"):
                 if not engine:
                     console.print("[red] No database selected.[/red]")
@@ -812,64 +812,60 @@ def shell():
                 console.print(Panel(full_response, title="🤖 AI Answer",
                                     border_style="green", box=box.ROUNDED))
 
-            # --- STRICT MODE ---
+            # CMD: MINDSQL — Strict mode: LLM generates SQL only, validated
             elif user_input.lower().startswith("mindsql"):
-                print("Strict mode on ")
-                #--reptition 3 begin---
                 if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                    console.print("[red] No database selected.[/red]")
                     continue
-                
+
                 natural_prompt = user_input[7:].strip()
                 messages = [
                     {'role': 'system', 'content': (
                         "You are a strict SQL generator.\n"
-                        "1. Output ONLY SQL code. Separate with semicolons (;).\n"
-                        "2. VERIFY COLUMNS EXIST before writing.\n"
-                        "3. Use EXACT table names from schema (case-sensitive).\n"
-
+                        "1. Output ONLY valid SQL code — no explanation.\n"
+                        "2. Verify all columns exist in the schema before using them.\n"
+                        "3. Use exact table and column names from the schema.\n"
                         f"\nContext:\n{schema_context}"
                     )},
                     {'role': 'user', 'content': natural_prompt}
                 ]
-                print(
-                   "Understanding user query\n"
-                   f"Mode : Strict ai  Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
-                   f"User prompt length: {len(messages[1]['content'])}\n"
-                   "Schema included:", "Context:" in messages[0]['content']
-                )
+
                 for attempt in range(MAX_RETRIES):
-                    with console.status(f"[bold yellow]🧠 Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
+                    with console.status(f"[bold yellow]Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
                         response = llm.create_chat_completion(messages=messages, temperature=0.1)
-                        ai_text = response['choices'][0]['message']['content']
                         
-                        generated_sql = extract_sql(ai_text) or ai_text  
+                        # Do NOT fall back to raw content. If it's not SQL, let it be None.
+                        generated_sql = extract_sql(response['choices'][0]['message']['content'])
+                        
+                        # Terminate gracefully if no SQL was found
+                        if not generated_sql:
+                            console.print(Panel(
+                                "[bold yellow]⚠ Invalid request.[/bold yellow]\nI can only process database and SQL-related requests.", 
+                                border_style="yellow", box=box.ROUNDED
+                            ))
+                            break # Exits the retry loop immediately
 
                         #--to check working of extract_table() & extract_columns()
                         tables, alias_map = extract_tables(generated_sql)
                         print(f"Tables:\n{tables}\nAliases:\n{alias_map}")
- 
-                        print(f"\nColumns found \n{extract_columns(generated_sql)}\n")   
 
-                    console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"), title="✨ Generated SQL", border_style="yellow", box=box.ROUNDED))
+                    console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
+                                        title="Generated SQL", border_style="yellow", box=box.ROUNDED))
+
+                    if input("Execute SQL? (y/n): ").strip().lower() != 'y':
+                        break
+                     # VALIDATE BEFORE EXECUTE
+                    is_valid = validate_sql_schema(generated_sql, SCHEMA_MAP) 
                     
-                    
-                    if input("🚀 Execute SQL? (y/n): ").strip().lower() != 'y':
+                    if is_valid is None:
                         break
 
-                    # VALIDATE BEFORE EXECUTE
-                    is_valid = validate_sql_schema(generated_sql, SCHEMA_MAP)
-                    if not is_valid:
+                    if is_valid is False:
                         console.print(Panel(
-                            "[bold red]❌ Schema Validation Failed[/bold red]",
+                            "[bold red]Schema Validation Failed[/bold red]",
                             style="red"
                         ))
                         continue
-                    else:
-                        console.print(Panel(
-                            "[bold green]✅ Schema Validation Passed[/bold green]",
-                            style="green"
-                        ))
 
 
                     try:
