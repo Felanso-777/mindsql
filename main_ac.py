@@ -506,46 +506,236 @@ def mindsql_start(messages: list) -> str | None:
 @app.command()
 def shell():
     print("Initialising......")
-    db_url = load_file(DB_URL_FILE)
-    engine = None
+    global SCHEMA_MAP
+    # --- Session state ---
+    db_url        = load_file(DB_URL_FILE)  # Last used DB URL (persisted)
+    engine        = None   # Active DB engine (requires a selected database)
+    server_engine = None   # Server-level engine (no DB) for SHOW DATABASES / switch
+    schema_context = ""    # Schema text injected into LLM prompts
+
+    # Stores login credentials in memory so switching DBs never needs re-login
+    base_credentials = {"user": None, "password": None, "host": None, "dialect": "mysql+pymysql"}
+
+    # --- Credential helpers ---
+    def build_url(target_db: str) -> str:
+        """Construct a full DB URL from cached credentials + target database name."""
+        return (f"{base_credentials['dialect']}://"
+                f"{base_credentials['user']}:{base_credentials['password']}@"
+                f"{base_credentials['host']}/{target_db}")
+
+    def cache_credentials(user: str, password: str, host: str, dialect: str = "mysql+pymysql"):
+        """Save login credentials to the in-memory store."""
+        base_credentials.update({"user": user, "password": password,
+                                  "host": host, "dialect": dialect})
+
+    def parse_credentials_from_url(url_str: str):
+        """Restore cached credentials from a saved URL string (used on startup)."""
+        try:
+            parsed = make_url(url_str)
+            cache_credentials(parsed.username, parsed.password,
+                              parsed.host, parsed.drivername)
+        except Exception:
+            pass
+
+# --- Restore previous session if a saved URL exists ---
     if db_url:
         # _ is Python convention for “unused variable”
+        parse_credentials_from_url(db_url)
         engine, _ = perform_connection(db_url)
-        schema_context = load_file(SCHEMA_FILE)
-    else : 
-        schema_context = None
-    style = Style.from_dict({ 'prompt': 'ansicyan bold' })
-    session = PromptSession(history=FileHistory(HISTORY_FILE), style=style)
+        schema_context = load_file(SCHEMA_FILE) or ""
+
+        # --- Prompt session setup ---
+    session = PromptSession(
+        history=FileHistory(HISTORY_FILE),
+        style=Style.from_dict({'prompt': 'ansicyan bold'}),
+    )
     
 
 
-    if engine: print_banner(db_url)
-
+    if engine:
+        print_banner(db_url)
+    else:
+        console.print(Panel(
+            "[bold cyan]Welcome to MindSQL![/bold cyan]\n\n"
+            "Type [bold green]connect[/bold green] to login with your database credentials.",
+            border_style="blue", box=box.ROUNDED, padding=(1, 2)
+        ))
+            # MAIN REPL LOOP
     while True:
         try:
-            user_input = session.prompt([('class:prompt', 'SQL> ')]).strip()
-            print("User typed : ",user_input)
-            if not user_input: continue
-            
-            if user_input.lower().startswith("sql>"): user_input = user_input[4:].strip()
-            if user_input.lower() in ["exit", "quit"]: break
-            print("Establishing connection with DB....")
-            if user_input.lower().startswith("mindsql connect ") or user_input.lower().startswith("connect "):
-                target = user_input.split("connect ", 1)[1].strip()
-                if "://" not in target and db_url:
-                    try:
-                        target = str(make_url(db_url).set(database=target))
-                    except: pass
-                
-                new_engine, tables = perform_connection(target)
-                if new_engine:
-                    engine = new_engine
-                    db_url = target
-                    schema_context = load_file(SCHEMA_FILE)
-                    print_banner(target)
-                    print("VALID TABLES:", SCHEMA_MAP.keys())
-                    print("SCHEMA MAP :",SCHEMA_MAP )
-                    
+            # Show current DB name in prompt, or 'no db' if none selected
+            current_db = make_url(db_url).database if db_url else "no db"
+            user_input = session.prompt([
+                ('class:prompt', f'SQL ({current_db})> ')
+            ]).strip()
+            if not user_input:
+                continue
+
+            # Strip trailing semicolon for internal command matching
+            clean_input = user_input.rstrip(';').strip()
+
+            if user_input.lower() in ["exit", "quit"]:
+                break
+
+    # CMD: USE db_name — Switch database using stored credentials
+
+            if clean_input.lower().startswith("use "):
+                if not base_credentials["user"]:
+                    console.print("[red] Please 'connect' first to establish credentials.[/red]")
+                    continue
+
+                target_db = clean_input.split(" ", 1)[1].strip()
+                try:
+                    new_url    = build_url(target_db)
+                    new_engine, _ = perform_connection(new_url)
+                    if new_engine:
+                        engine         = new_engine
+                        db_url         = new_url
+                        schema_context = load_file(SCHEMA_FILE) or ""
+                        print_banner(db_url)
+                        console.print(f"[bold green]✅ Switched to database: {target_db}[/bold green]")
+                except Exception as e:
+                    console.print(f"[red] Could not switch to '{target_db}': {e}[/red]")
+                continue
+
+            # CMD: SET_TOKENS — Adjust LLM context window memory
+
+            elif clean_input.lower().startswith("set_tokens "):
+                parts = clean_input.split(" ")
+                if len(parts) == 2 and parts[1].isdigit():
+                    new_tokens = int(parts[1])
+                    with open(SETTINGS_FILE, "r") as f:
+                        settings = json.load(f)
+                    settings["n_ctx"] = new_tokens
+                    with open(SETTINGS_FILE, "w") as f:
+                        json.dump(settings, f)
+                    console.print(f"[bold green]✅ Token limit saved as {new_tokens}.[/bold green]")
+                    console.print("[yellow]🔄 Please type 'exit' and restart MindSQL to apply the new memory settings.[/yellow]")
+                else:
+                    console.print("[red]Invalid usage. Example: set_tokens 4096[/red]")
+                continue
+
+            # CMD: SWITCH — Interactive database picker (no re-login needed)
+            elif clean_input.lower() == "switch":
+                nav_engine = engine or server_engine
+                if not nav_engine:
+                    console.print("[red] Not connected. Please 'connect' first.[/red]")
+                    continue
+
+                try:
+                    with nav_engine.connect() as conn:
+                        db_list = [row[0] for row in conn.execute(text("SHOW DATABASES;")).fetchall()]
+
+                    console.print("\n[bold cyan]📂 Available Databases:[/bold cyan]")
+                    for idx, name in enumerate(db_list, 1):
+                        console.print(f"  [bold yellow]{idx}.[/bold yellow] {name}")
+
+                    choice = session.prompt([('class:prompt', '\nEnter number or name: ')]).strip()
+                    if not choice:
+                        continue
+
+                    target_db = None
+                    if choice.isdigit() and 1 <= int(choice) <= len(db_list):
+                        target_db = db_list[int(choice) - 1]
+                    elif choice in db_list:
+                        target_db = choice
+
+                    if target_db:
+                        new_url    = build_url(target_db)
+                        new_engine, _ = perform_connection(new_url)
+                        if new_engine:
+                            engine         = new_engine
+                            db_url         = new_url
+                            schema_context = load_file(SCHEMA_FILE) or ""
+                            print_banner(db_url)
+                        else:
+                            console.print(
+                                f"[red] User '{base_credentials['user']}' "
+                                f"has no access to '{target_db}'.[/red]"
+                            )
+                    else:
+                        console.print("[yellow]⚠ Invalid selection.[/yellow]")
+
+                except Exception as e:
+                    console.print(f"[red] Could not fetch databases: {e}[/red]")
+                continue
+
+            # CMD: CONNECT — Full login wizard with server + DB selection
+            elif clean_input.lower() in ["connect", "mindsql connect"]:
+                console.print(Panel("[bold cyan]🔐 Server Login[/bold cyan]", box=box.ROUNDED))
+                c_user = session.prompt([('class:prompt', 'Username (e.g., root): ')]).strip() or "root"
+                c_pass = session.prompt([('class:prompt', 'Password: ')], is_password=True).strip()
+                c_host = session.prompt([('class:prompt', 'Host (default: localhost): ')]).strip() or "localhost"
+
+                server_url = f"mysql+pymysql://{c_user}:{c_pass}@{c_host}/"
+
+                try:
+                    # Verify credentials and fetch accessible databases
+                    with console.status(f"[bold blue]Verifying credentials...[/bold blue]"):
+                        temp_engine = create_engine(server_url)
+                        with temp_engine.connect() as conn:
+                            db_list = [row[0] for row in conn.execute(text("SHOW DATABASES;")).fetchall()]
+
+                    console.print("\n[bold green]✅ Login Successful![/bold green]")
+                    console.print("[bold cyan]Select a database:[/bold cyan]")
+                    for idx, name in enumerate(db_list, 1):
+                        console.print(f"  [bold yellow]{idx}.[/bold yellow] {name}")
+
+                    choice = session.prompt([('class:prompt', '\nEnter number or name: ')]).strip()
+
+                    target_db = None
+                    if choice.isdigit() and 1 <= int(choice) <= len(db_list):
+                        target_db = db_list[int(choice) - 1]
+                    elif choice in db_list:
+                        target_db = choice
+
+                    # Always cache credentials after successful login
+                    cache_credentials(c_user, c_pass, c_host)
+
+                    if not target_db:
+                        # No DB chosen — keep server engine alive for navigation
+                        console.print(
+                            "[yellow]⚠ No database selected. "
+                            "Type 'use <db_name>' or 'switch' to select one.[/yellow]"
+                        )
+                        engine         = None
+                        db_url         = None
+                        schema_context = ""
+                        server_engine  = create_engine(server_url)  # navigation-only engine
+                    else:
+                        final_url  = f"mysql+pymysql://{c_user}:{c_pass}@{c_host}/{target_db}"
+                        new_engine, _ = perform_connection(final_url)
+                        if new_engine:
+                            engine         = new_engine
+                            db_url         = final_url
+                            schema_context = load_file(SCHEMA_FILE) or ""
+                            print_banner(final_url)
+
+                except Exception as e:
+                    console.print(f"[red] Login Failed: {e}[/red]")
+
+                session.is_password = False
+                continue
+
+            # CMD: CONNECT db_name — Direct DB switch without wizard
+            elif clean_input.lower().startswith("connect "):
+                if not base_credentials["user"]:
+                    console.print("[red] Please 'connect' first to set credentials.[/red]")
+                    continue
+
+                target_db_name = clean_input.split("connect ", 1)[1].strip()
+                try:
+                    new_url    = build_url(target_db_name)
+                    new_engine, _ = perform_connection(new_url)
+                    if new_engine:
+                        engine         = new_engine
+                        db_url         = new_url
+                        schema_context = load_file(SCHEMA_FILE) or ""
+                        print_banner(new_url)
+                    else:
+                        console.print(f"[red] Could not connect to '{target_db_name}'.[/red]")
+                except Exception as e:
+                    console.print(f"[red] Error: {e}[/red]")
                 continue
 
             # --- PLOT MODE ---
