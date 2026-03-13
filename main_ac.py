@@ -615,6 +615,51 @@ def shell():
                     console.print("[red]Invalid usage. Example: set_tokens 4096[/red]")
                 continue
 
+            # CMD: SWITCH — Interactive database picker (no re-login needed)
+            elif clean_input.lower() == "switch":
+                nav_engine = engine or server_engine
+                if not nav_engine:
+                    console.print("[red] Not connected. Please 'connect' first.[/red]")
+                    continue
+
+                try:
+                    with nav_engine.connect() as conn:
+                        db_list = [row[0] for row in conn.execute(text("SHOW DATABASES;")).fetchall()]
+
+                    console.print("\n[bold cyan]📂 Available Databases:[/bold cyan]")
+                    for idx, name in enumerate(db_list, 1):
+                        console.print(f"  [bold yellow]{idx}.[/bold yellow] {name}")
+
+                    choice = session.prompt([('class:prompt', '\nEnter number or name: ')]).strip()
+                    if not choice:
+                        continue
+
+                    target_db = None
+                    if choice.isdigit() and 1 <= int(choice) <= len(db_list):
+                        target_db = db_list[int(choice) - 1]
+                    elif choice in db_list:
+                        target_db = choice
+
+                    if target_db:
+                        new_url    = build_url(target_db)
+                        new_engine, _ = perform_connection(new_url)
+                        if new_engine:
+                            engine         = new_engine
+                            db_url         = new_url
+                            schema_context = load_file(SCHEMA_FILE) or ""
+                            print_banner(db_url)
+                        else:
+                            console.print(
+                                f"[red] User '{base_credentials['user']}' "
+                                f"has no access to '{target_db}'.[/red]"
+                            )
+                    else:
+                        console.print("[yellow]⚠ Invalid selection.[/yellow]")
+
+                except Exception as e:
+                    console.print(f"[red] Could not fetch databases: {e}[/red]")
+                continue
+
             # --- PLOT MODE ---
 
             if user_input.lower().startswith("mindsql_plot"):
