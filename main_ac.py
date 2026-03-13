@@ -787,63 +787,30 @@ def shell():
 
             # --- CHAT MODE (Updated for Chain of Thought) ---
             elif user_input.lower().startswith("mindsql_ans"):
-                print("Entering chat mode...")
-                #--reptition 2 begin---
                 if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                    console.print("[red] No database selected.[/red]")
                     continue
 
                 natural_prompt = user_input[11:].strip()
-                
-                # --- NEW CHAIN OF THOUGHT SYSTEM PROMPT ---
-                system_instruction = (
-                    "You are a Database Expert.\n"
-                    "CRITICAL: Before writing SQL, you must VERIFY that every column exists in the Context.\n"
-                    "STEP 1: Briefly list the tables/columns you plan to use and confirm they are in the schema.\n"
-                    "STEP 2: Write the SQL script (using semicolons for multiple steps).\n"
-                    "----------------\n"
-                    "RULES:\n"
-                    "1. DO NOT HALLUCINATE: If a direct link (like Enrollments.teacher_id) is missing, find a valid path (e.g., Teachers->Depts->Courses).\n"
-                    "2. TO DELETE STUDENT: Delete Grades -> Enrollments -> Attendance -> Student.\n"
-                    f"\nContext:\n{schema_context}"
-                )
-
                 messages = [
-                    {'role': 'system', 'content': system_instruction},
+                    {'role': 'system', 'content': (
+                        "You are a Database Expert.\n"
+                        "STEP 1: Briefly list the tables/columns you will use.\n"
+                        "STEP 2: Write the SQL script.\n"
+                        "CRITICAL: Only use columns that exist in the schema.\n"
+                        f"\nContext:\n{schema_context}"
+                    )},
                     {'role': 'user', 'content': natural_prompt}
                 ]
-                print(
-                   "Understanding user query\n"
-                   f"Mode : Chat Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
-                   f"User prompt length: {len(messages[1]['content'])}\n"
-                   "Schema included:", "Context:" in messages[0]["content"]
-                )
 
-                for attempt in range(MAX_RETRIES):
-                    with console.status(f"[bold green]💬 Asking AI (Attempt {attempt+1})...[/bold green]", spinner="dots"):
-                        response = llm.create_chat_completion(messages=messages, temperature=0.1)
-                        full_response = response['choices'][0]['message']['content']
-                        ai_text = full_response
-                    
-                    console.print(Panel(full_response, title="🤖 AI Answer", border_style="green", box=box.ROUNDED))
-                    
-                    sql_code = extract_sql(full_response)
-                    
-                    if sql_code:
-                        if input("▶ Execute suggested SQL? (y/n): ").strip().lower() == 'y':
-                            try:
-                                execute_sql(engine, sql_code, raise_error=True)
-                                break 
-                            except Exception as e:
-                                if attempt < MAX_RETRIES - 1:
-                                    console.print(f"[yellow]⚠ Script Error: {e}. Retrying...[/yellow]")
-                                    messages.append({'role': 'assistant', 'content': full_response})
-                                    messages.append({'role': 'user', 'content': f"Execution failed: {str(e)}. RE-CHECK THE SCHEMA. Do not use invalid columns."})
-                                else:
-                                    console.print(f"[bold red]❌ Failed after {MAX_RETRIES} attempts.[/bold red]")
-                        else: break
-                    else: break
-                   #--reptition 2 end---
+                # No retry loop needed, just a single AI call
+                with console.status("[bold green]💬 Asking AI...[/bold green]", spinner="dots"):
+                    response      = llm.create_chat_completion(messages=messages, temperature=0.1)
+                    full_response = response['choices'][0]['message']['content']
+
+                # Print the AI's explanation and suggested SQL
+                console.print(Panel(full_response, title="🤖 AI Answer",
+                                    border_style="green", box=box.ROUNDED))
 
             # --- STRICT MODE ---
             elif user_input.lower().startswith("mindsql"):
