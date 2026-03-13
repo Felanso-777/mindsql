@@ -881,16 +881,26 @@ def shell():
                             console.print(Panel(f"[bold red]Failed after {MAX_RETRIES} attempts[/bold red]\n{e}", style="red"))
                         #--reptition 3 end---
 
-            # --- STANDARD SQL ---
+            # STANDARD SQL — Pass directly to the database engine
+            # SHOW DATABASES is allowed even without a selected database
             else:
-                print("Reverting to normal mode....")
-                if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                if clean_input.upper() == "SHOW DATABASES":
+                    nav_engine = engine or server_engine
+                    if nav_engine:
+                        execute_sql(nav_engine, user_input)
+                    else:
+                        console.print("[red] Not connected. Please 'connect' first.[/red]")
                     continue
+
+                if not engine:
+                    console.print("[red] No database selected. Use 'switch' or 'use <db_name>'.[/red]")
+                    continue
+
                 execute_sql(engine, user_input)
 
+
         except KeyboardInterrupt: continue
-        except Exception as e: console.print(Panel(f"Error: {e}", style="red"))
+        except Exception as e: console.print(Panel(f"[bold red]Unexpected Error[/bold red]\n{e}", style="red"))
 
 if __name__ == "__main__":
     app()
