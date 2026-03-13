@@ -21,8 +21,15 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
+from rich.progress import (Progress, TextColumn, BarColumn,
+                           DownloadColumn, TransferSpeedColumn, TimeRemainingColumn)
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine.url import make_url
+import warnings
+from sqlalchemy.exc import SAWarning
+
+# Ignore SQLAlchemy warnings about unrecognized data types (like geometry)
+warnings.filterwarnings("ignore", category=SAWarning)
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
