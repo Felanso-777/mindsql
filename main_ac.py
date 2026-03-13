@@ -560,8 +560,8 @@ def shell():
             "Type [bold green]connect[/bold green] to login with your database credentials.",
             border_style="blue", box=box.ROUNDED, padding=(1, 2)
         ))
-
-while True:
+            # MAIN REPL LOOP
+    while True:
         try:
             # Show current DB name in prompt, or 'no db' if none selected
             current_db = make_url(db_url).database if db_url else "no db"
@@ -576,6 +576,27 @@ while True:
 
             if user_input.lower() in ["exit", "quit"]:
                 break
+
+    # CMD: USE db_name — Switch database using stored credentials
+
+            if clean_input.lower().startswith("use "):
+                if not base_credentials["user"]:
+                    console.print("[red] Please 'connect' first to establish credentials.[/red]")
+                    continue
+
+                target_db = clean_input.split(" ", 1)[1].strip()
+                try:
+                    new_url    = build_url(target_db)
+                    new_engine, _ = perform_connection(new_url)
+                    if new_engine:
+                        engine         = new_engine
+                        db_url         = new_url
+                        schema_context = load_file(SCHEMA_FILE) or ""
+                        print_banner(db_url)
+                        console.print(f"[bold green]✅ Switched to database: {target_db}[/bold green]")
+                except Exception as e:
+                    console.print(f"[red] Could not switch to '{target_db}': {e}[/red]")
+                continue
 
             # --- PLOT MODE ---
 
