@@ -21,8 +21,15 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich import box
+from rich.progress import (Progress, TextColumn, BarColumn,
+                           DownloadColumn, TransferSpeedColumn, TimeRemainingColumn)
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine.url import make_url
+import warnings
+from sqlalchemy.exc import SAWarning
+
+# Ignore SQLAlchemy warnings about unrecognized data types (like geometry)
+warnings.filterwarnings("ignore", category=SAWarning)
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
@@ -209,7 +216,7 @@ def validate_sql_schema(sql,SCHEMA_MAP):
         if choice == 'y':
             return True  # User approved: allow execution and skip normal column checks
         else:
-            return False # User denied: block execution 
+            return None # User denied: block execution 
     # table validation 
     for table in tables : 
         matched = None
@@ -785,128 +792,98 @@ def shell():
 
                 #--reptition 1 end---
 
-            # --- CHAT MODE (Updated for Chain of Thought) ---
+            # CMD --- CHAT MODE (Updated for Chain of Thought) ---
             elif user_input.lower().startswith("mindsql_ans"):
-                print("Entering chat mode...")
-                #--reptition 2 begin---
                 if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                    console.print("[red] No database selected.[/red]")
                     continue
 
                 natural_prompt = user_input[11:].strip()
-                
-                # --- NEW CHAIN OF THOUGHT SYSTEM PROMPT ---
-                system_instruction = (
-                    "You are a Database Expert.\n"
-                    "CRITICAL: Before writing SQL, you must VERIFY that every column exists in the Context.\n"
-                    "STEP 1: Briefly list the tables/columns you plan to use and confirm they are in the schema.\n"
-                    "STEP 2: Write the SQL script (using semicolons for multiple steps).\n"
-                    "----------------\n"
-                    "RULES:\n"
-                    "1. DO NOT HALLUCINATE: If a direct link (like Enrollments.teacher_id) is missing, find a valid path (e.g., Teachers->Depts->Courses).\n"
-                    "2. TO DELETE STUDENT: Delete Grades -> Enrollments -> Attendance -> Student.\n"
-                    f"\nContext:\n{schema_context}"
-                )
-
-                messages = [
-                    {'role': 'system', 'content': system_instruction},
-                    {'role': 'user', 'content': natural_prompt}
-                ]
-                print(
-                   "Understanding user query\n"
-                   f"Mode : Chat Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
-                   f"User prompt length: {len(messages[1]['content'])}\n"
-                   "Schema included:", "Context:" in messages[0]["content"]
-                )
-
-                for attempt in range(MAX_RETRIES):
-                    with console.status(f"[bold green]💬 Asking AI (Attempt {attempt+1})...[/bold green]", spinner="dots"):
-                        response = llm.create_chat_completion(messages=messages, temperature=0.1)
-                        full_response = response['choices'][0]['message']['content']
-                        ai_text = full_response
-                    
-                    console.print(Panel(full_response, title="🤖 AI Answer", border_style="green", box=box.ROUNDED))
-                    
-                    sql_code = extract_sql(full_response)
-                    
-                    if sql_code:
-                        if input("▶ Execute suggested SQL? (y/n): ").strip().lower() == 'y':
-                            try:
-                                execute_sql(engine, sql_code, raise_error=True)
-                                break 
-                            except Exception as e:
-                                if attempt < MAX_RETRIES - 1:
-                                    console.print(f"[yellow]⚠ Script Error: {e}. Retrying...[/yellow]")
-                                    messages.append({'role': 'assistant', 'content': full_response})
-                                    messages.append({'role': 'user', 'content': f"Execution failed: {str(e)}. RE-CHECK THE SCHEMA. Do not use invalid columns."})
-                                else:
-                                    console.print(f"[bold red]❌ Failed after {MAX_RETRIES} attempts.[/bold red]")
-                        else: break
-                    else: break
-                   #--reptition 2 end---
-
-            # --- STRICT MODE ---
-            elif user_input.lower().startswith("mindsql"):
-                print("Strict mode on ")
-                #--reptition 3 begin---
-                if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
-                    continue
-                
-                natural_prompt = user_input[7:].strip()
                 messages = [
                     {'role': 'system', 'content': (
-                        "You are a strict SQL generator.\n"
-                        "1. Output ONLY SQL code. Separate with semicolons (;).\n"
-                        "2. VERIFY COLUMNS EXIST before writing.\n"
-                        "3. Use EXACT table names from schema (case-sensitive).\n"
-
+                        "You are a Database Expert.\n"
+                        "STEP 1: Briefly list the tables/columns you will use.\n"
+                        "STEP 2: Write the SQL script.\n"
+                        "CRITICAL: Only use columns that exist in the schema.\n"
                         f"\nContext:\n{schema_context}"
                     )},
                     {'role': 'user', 'content': natural_prompt}
                 ]
-                print(
-                   "Understanding user query\n"
-                   f"Mode : Strict ai  Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
-                   f"User prompt length: {len(messages[1]['content'])}\n"
-                   "Schema included:", "Context:" in messages[0]['content']
-                )
+
+                # No retry loop needed, just a single AI call
+                with console.status("[bold green]💬 Asking AI...[/bold green]", spinner="dots"):
+                    response      = llm.create_chat_completion(messages=messages, temperature=0.1)
+                    full_response = response['choices'][0]['message']['content']
+
+                # Print the AI's explanation and suggested SQL
+                console.print(Panel(full_response, title="🤖 AI Answer",
+                                    border_style="green", box=box.ROUNDED))
+
+            # CMD: MINDSQL — Strict mode: LLM generates SQL only, validated
+            elif user_input.lower().startswith("mindsql"):
+                if not engine:
+                    console.print("[red] No database selected.[/red]")
+                    continue
+
+                natural_prompt = user_input[7:].strip()
+                messages = [
+                    {'role': 'system', 'content': (
+                        "You are a strict SQL generator.\n"
+                        "1. Output ONLY valid SQL code — no explanation.\n"
+                        "2. Verify all columns exist in the schema before using them.\n"
+                        "3. Use exact table and column names from the schema.\n"
+                        f"\nContext:\n{schema_context}"
+                    )},
+                    {'role': 'user', 'content': natural_prompt}
+                ]
+
                 for attempt in range(MAX_RETRIES):
-                    with console.status(f"[bold yellow]🧠 Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
+                    with console.status(f"[bold yellow]Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
                         response = llm.create_chat_completion(messages=messages, temperature=0.1)
-                        ai_text = response['choices'][0]['message']['content']
                         
-                        generated_sql = extract_sql(ai_text) or ai_text  
+                        # Do NOT fall back to raw content. If it's not SQL, let it be None.
+                        generated_sql = extract_sql(response['choices'][0]['message']['content'])
+                        
+                        # Terminate gracefully if no SQL was found
+                        if not generated_sql:
+                            console.print(Panel(
+                                "[bold yellow]⚠ Invalid request.[/bold yellow]\nI can only process database and SQL-related requests.", 
+                                border_style="yellow", box=box.ROUNDED
+                            ))
+                            break # Exits the retry loop immediately
 
                         #--to check working of extract_table() & extract_columns()
                         tables, alias_map = extract_tables(generated_sql)
                         print(f"Tables:\n{tables}\nAliases:\n{alias_map}")
- 
-                        print(f"\nColumns found \n{extract_columns(generated_sql)}\n")   
 
-                    console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"), title="✨ Generated SQL", border_style="yellow", box=box.ROUNDED))
+                    console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
+                                        title="Generated SQL", border_style="yellow", box=box.ROUNDED))
+
+                    if input("Execute SQL? (y/n): ").strip().lower() != 'y':
+                        break
+                     # VALIDATE BEFORE EXECUTE
+                    is_valid = validate_sql_schema(generated_sql, SCHEMA_MAP) 
                     
-                    
-                    if input("🚀 Execute SQL? (y/n): ").strip().lower() != 'y':
+                    if is_valid is None:
                         break
 
-                    # VALIDATE BEFORE EXECUTE
-                    is_valid = validate_sql_schema(generated_sql, SCHEMA_MAP)
-                    if not is_valid:
+                    if is_valid is False:
                         console.print(Panel(
-                            "[bold red]❌ Schema Validation Failed[/bold red]",
+                            "[bold red]Schema Validation Failed[/bold red]",
                             style="red"
                         ))
                         continue
-                    else:
-                        console.print(Panel(
-                            "[bold green]✅ Schema Validation Passed[/bold green]",
-                            style="green"
-                        ))
 
 
                     try:
                         execute_sql(engine, generated_sql, raise_error=True)
+                        # --- AI REFRESH LOGIC ---
+                        if any(kw in generated_sql.upper() for kw in ["CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE"]):
+                            SCHEMA_MAP = load_schema_map(engine)
+                            generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
+                            schema_context = load_file(SCHEMA_FILE) or ""
+                            console.print("[dim green]🔄 Schema cache updated by AI![/dim green]")
+                        # ------------------------
                         break
 
                     except Exception as e:
@@ -918,16 +895,37 @@ def shell():
                             console.print(Panel(f"[bold red]Failed after {MAX_RETRIES} attempts[/bold red]\n{e}", style="red"))
                         #--reptition 3 end---
 
-            # --- STANDARD SQL ---
+            # STANDARD SQL — Pass directly to the database engine
+            # SHOW DATABASES is allowed even without a selected database
             else:
-                print("Reverting to normal mode....")
-                if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                if clean_input.upper() == "SHOW DATABASES":
+                    nav_engine = engine or server_engine
+                    if nav_engine:
+                        execute_sql(nav_engine, user_input)
+                    else:
+                        console.print("[red] Not connected. Please 'connect' first.[/red]")
                     continue
+
+                if not engine:
+                    console.print("[red] No database selected. Use 'switch' or 'use <db_name>'.[/red]")
+                    continue
+
                 execute_sql(engine, user_input)
+                # --- REFRESH LOGIC ---
+                # If the query changes the database structure, refresh the schema map and text file
+                if any(keyword in clean_input.upper() for keyword in ["CREATE", "ALTER", "DROP", "RENAME", "TRUNCATE"]):
+                    SCHEMA_MAP = load_schema_map(engine)
+                    generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
+                    
+                    # Update the context for the LLM and the autocomplete engine
+                    schema_context = load_file(SCHEMA_FILE) or ""
+                    
+                    console.print("[dim green]🔄 Schema cache updated![/dim green]")
+                # --- NEW REFRESH LOGIC ENDS HERE ---
+
 
         except KeyboardInterrupt: continue
-        except Exception as e: console.print(Panel(f"Error: {e}", style="red"))
+        except Exception as e: console.print(Panel(f"[bold red]Unexpected Error[/bold red]\n{e}", style="red"))
 
 if __name__ == "__main__":
     app()
