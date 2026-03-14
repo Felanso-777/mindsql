@@ -3,13 +3,15 @@ name: Build and Release MindSQL
 on:
   push:
     tags:
-      - 'v*' # This runs only when you push a version tag like v1.0, v1.1, etc.
+      - 'v*' # Triggered by tags like v1.0.0
+  workflow_dispatch: # Allows you to run it manually for testing
 
 jobs:
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
 
@@ -22,18 +24,30 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install Dependencies
+    - name: Install Linux Build Tools
+      if: runner.os == 'Linux'
+      run: sudo apt-get update && sudo apt-get install -y build-essential python3-dev
+
+    - name: Install Compilers and Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
+        # Use pre-built CPU binaries to avoid the "Building Wheel" hang/error
+        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
         pip install -r requirements.txt
 
     - name: Build with PyInstaller
+      # We use main_ac.py as the entry point. 
+      # Ensure main_ac.py "imports main" if you want both to run!
       run: |
-        pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-${{ matrix.os }}" main_ac.py
+        pyinstaller --onefile --clean \
+        --collect-all llama_cpp \
+        --name "MindSQL-${{ matrix.os }}" \
+        main_ac.py
 
-    - name: Upload to Release
+    - name: Create Release
       uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
       with:
         files: |
           dist/MindSQL-windows-latest.exe
