@@ -105,23 +105,23 @@ def get_or_set_settings() -> dict:
         final_model_path = model_dir / "qwen2.5-coder-3b-instruct.Q4_K_M.gguf"
 
         if not final_model_path.exists():
-            console.print("[bold yellow]📥 Downloading model...[/bold yellow]")
+            console.print("[bold yellow]Downloading model...[/bold yellow]")
             download_model_with_progress(MODEL_DOWNLOAD_URL, str(final_model_path))
             file_size = final_model_path.stat().st_size
             if file_size < 1_000_000:  # Less than 1 MB = definitely not a real model
-                console.print(f"[bold red]❌ Download failed — file too small ({file_size} bytes). Check the URL.[/bold red]")
+                console.print(f"[bold red]Download failed — file too small ({file_size} bytes). Check the URL.[/bold red]")
                 final_model_path.unlink()  # Delete the bad file
                 sys.exit(1)
 
             
         else:
-            console.print(f"[bold green]✅ Model found locally at: {final_model_path}[/bold green]")
+            console.print(f"[bold green]Model found locally at: {final_model_path}[/bold green]")
             
         settings["model_path"] = str(final_model_path)
 
     # 3. Check and prompt for AI Memory (Tokens)
     if "n_ctx" not in settings:
-        console.print("\n[bold cyan]🧠 AI Memory (Tokens) Setup[/bold cyan]")
+        console.print("\n[bold cyan]AI Memory (Tokens) Setup[/bold cyan]")
         console.print("  [green]1. Low[/green]    (2048)  - Best for older/low-end PCs")
         console.print("  [yellow]2. Medium[/yellow] (4096)  - Recommended for most PCs")
         console.print("  [red]3. High[/red]   (8192)  - Best for high-end PCs")
@@ -147,7 +147,7 @@ def get_or_set_settings() -> dict:
 
 # Locate model and load LLM at startup
 USER_SETTINGS = get_or_set_settings()
-with console.status(f"[bold green]🧠 Loading Local LLM ({USER_SETTINGS['n_ctx']} tokens)...[/bold green]"):
+with console.status(f"[bold green]Loading Local LLM ({USER_SETTINGS['n_ctx']} tokens)...[/bold green]"):
     try:
         llm = Llama(
             model_path=USER_SETTINGS["model_path"],
@@ -210,7 +210,7 @@ def validate_sql_schema(sql,SCHEMA_MAP):
     forbidden = ["CREATE", "ALTER", "DROP", "DELETE", "RENAME", "TRUNCATE"]
     if any(keyword in sql_upper for keyword in forbidden):
         # 1. Print a warning using your existing Rich console
-        console.print("\n[bold red]⚠️  WARNING:[/bold red] Destructive or structural command detected!")
+        console.print("\n[bold red]WARNING:[/bold red] Destructive or structural command detected!")
         # 2. Ask for explicit user permission
         choice = input("Are you sure you want to allow this command? (y/n): ").strip().lower()
         if choice == 'y':
@@ -239,7 +239,7 @@ def validate_sql_schema(sql,SCHEMA_MAP):
         elif col_table in valid_tables :
             real_table = col_table
         # case -3 : if alias not used , only single exists in query
-        elif col_table is None :
+        elif not col_table: # <--- FIX: This now catches both None and ""
             if len(valid_tables) == 1 :
                 real_table = list(valid_tables.keys())[0]
             else :
@@ -311,12 +311,18 @@ def print_banner(db_url):
     console.clear()
     banner_text = Text("MindSQL v10.3 (Chain of Thought)", style="bold magenta", justify="center")
     
-    info_text = f"\n[bold cyan]Connected to:[/bold cyan] {db_url}\n"
-    info_text += "[dim]──────────────────────────────────────────────[/dim]\n"
-    info_text += "• [bold cyan]mindsql <text>[/bold cyan]       : Strict SQL\n"
-    info_text += "• [bold cyan]mindsql_ans <text>[/bold cyan]   : Chat & Explain\n"
-    info_text += "• [bold yellow]mindsql_plot <text>[/bold yellow]  : Generate Charts 📊\n"
-    info_text += "• [bold red]exit[/bold red]                  : Quit"
+    info_text = (
+        f"\n[bold cyan]Connected to:[/bold cyan] {db_url}\n"
+        "[dim]──────────────────────────────────────────────[/dim]\n"
+        "• [bold cyan]mindsql <text>[/bold cyan]       : Strict SQL\n"
+        "• [bold cyan]mindsql_ans <text>[/bold cyan]   : Chat & Explain\n"
+        "• [bold yellow]mindsql_plot <text>[/bold yellow]  : Generate Charts\n"
+        "• [bold green]switch[/bold green]                 : Change Database\n"
+        "• [bold green]connect[/bold green]                : Login Wizard\n"
+        "• [bold magenta]set_tokens <num>[/bold magenta]       : Change AI Memory\n"
+        "• [bold yellow]CREATE/DROP DATABASE[/bold yellow]   : Server Management\n"
+        "• [bold red]exit[/bold red]                   : Quit"
+    )
 
     console.print(Panel(
         info_text,
@@ -355,8 +361,8 @@ def generate_schema_text(schema_map, schema_file):
     
 #--Initialising DB connection--
 
-def perform_connection(connection_string):
-    with console.status(f"[bold blue]🔌 Connecting to {connection_string}...[/bold blue]", spinner="dots"):
+def perform_connection(connection_string, silent=False):
+    with console.status(f"[bold blue]Connecting to {connection_string}...[/bold blue]", spinner="dots"):
         try:
             engine = create_engine(connection_string)
 
@@ -364,16 +370,17 @@ def perform_connection(connection_string):
             SCHEMA_MAP = load_schema_map(engine)
 
             if not SCHEMA_MAP:
-                console.print("[yellow]⚠ Connected, but DB is empty.[/yellow]")
+                console.print("[yellow] Connected, but DB is empty.[/yellow]")
             else:
                 generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
-
+            # Only save the file if the connection was successful
             save_file(DB_URL_FILE, connection_string)
 
             return engine, list(SCHEMA_MAP.keys())
 
         except Exception as e:
-            console.print(Panel(f"[bold red]Connection Failed[/bold red]\n{e}", style="red"))
+            if not silent:
+                console.print(Panel(f"[bold red]Connection Failed[/bold red]\n{e}", style="red"))
             return None, []
 
 # --- CHARTING FUNCTION ---
@@ -400,7 +407,7 @@ def draw_ascii_bar_chart(data):
     bar_width = 40 
 
     console.print()
-    console.print(Panel("[bold]📊 Analysis Result[/bold]", style="blue", box=box.MINIMAL, expand=False))
+    console.print(Panel("[bold]Analysis Result[/bold]", style="blue", box=box.MINIMAL, expand=False))
 
     for label, value in clean_data:
         if max_val > 0:
@@ -495,24 +502,14 @@ def execute_sql(engine, sql: str, raise_error=False, return_data=False):
 def mindsql_start(messages: list) -> str | None:
     """Send messages to the local LLM and extract SQL from the response."""
     response = llm.create_chat_completion(messages=messages, temperature=0.1)
-
-    print("\n[AI RESPONSE DEBUG]")
-    print("Raw response length:", len(str(response)))
-
     ai_text = response['choices'][0]['message']['content']
-    print("AI output length:", len(ai_text))
-    print("AI output preview:", ai_text[:200])
-
     return extract_sql(ai_text)
 
-
-    
 
 # --- Commands ---
 
 @app.command()
 def shell():
-    print("Initialising......")
     global SCHEMA_MAP
     # --- Session state ---
     db_url        = load_file(DB_URL_FILE)  # Last used DB URL (persisted)
@@ -548,8 +545,25 @@ def shell():
     if db_url:
         # _ is Python convention for “unused variable”
         parse_credentials_from_url(db_url)
-        engine, _ = perform_connection(db_url)
-        schema_context = load_file(SCHEMA_FILE) or ""
+        # Pass silent=True so we don't show an error if the DB was dropped
+        engine, _ = perform_connection(db_url, silent=True)
+        if engine:
+            # Valid connection, resume normally
+            schema_context = load_file(SCHEMA_FILE) or ""
+        else:
+            # INVALID connection (DB deleted, server offline, etc.)
+            # Clear the file so it doesn't cause future issues!
+            save_file(DB_URL_FILE, "")
+            db_url = None
+            schema_context = ""
+            
+            # Start a server engine so 'switch' command still works
+            if base_credentials["user"]:
+                s_url = f"{base_credentials['dialect']}://{base_credentials['user']}:{base_credentials['password']}@{base_credentials['host']}/"
+                try:
+                    server_engine = create_engine(s_url)
+                except:
+                    pass
 
         # --- Prompt session setup ---
     session = PromptSession(
@@ -600,7 +614,7 @@ def shell():
                         db_url         = new_url
                         schema_context = load_file(SCHEMA_FILE) or ""
                         print_banner(db_url)
-                        console.print(f"[bold green]✅ Switched to database: {target_db}[/bold green]")
+                        console.print(f"[bold green]Switched to database: {target_db}[/bold green]")
                 except Exception as e:
                     console.print(f"[red] Could not switch to '{target_db}': {e}[/red]")
                 continue
@@ -616,8 +630,8 @@ def shell():
                     settings["n_ctx"] = new_tokens
                     with open(SETTINGS_FILE, "w") as f:
                         json.dump(settings, f)
-                    console.print(f"[bold green]✅ Token limit saved as {new_tokens}.[/bold green]")
-                    console.print("[yellow]🔄 Please type 'exit' and restart MindSQL to apply the new memory settings.[/yellow]")
+                    console.print(f"[bold green]Token limit saved as {new_tokens}.[/bold green]")
+                    console.print("[yellow]Please type 'exit' and restart MindSQL to apply the new memory settings.[/yellow]")
                 else:
                     console.print("[red]Invalid usage. Example: set_tokens 4096[/red]")
                 continue
@@ -633,7 +647,7 @@ def shell():
                     with nav_engine.connect() as conn:
                         db_list = [row[0] for row in conn.execute(text("SHOW DATABASES;")).fetchall()]
 
-                    console.print("\n[bold cyan]📂 Available Databases:[/bold cyan]")
+                    console.print("\n[bold cyan]Available Databases:[/bold cyan]")
                     for idx, name in enumerate(db_list, 1):
                         console.print(f"  [bold yellow]{idx}.[/bold yellow] {name}")
 
@@ -661,7 +675,7 @@ def shell():
                                 f"has no access to '{target_db}'.[/red]"
                             )
                     else:
-                        console.print("[yellow]⚠ Invalid selection.[/yellow]")
+                        console.print("[yellow] Invalid selection.[/yellow]")
 
                 except Exception as e:
                     console.print(f"[red] Could not fetch databases: {e}[/red]")
@@ -669,7 +683,7 @@ def shell():
 
             # CMD: CONNECT — Full login wizard with server + DB selection
             elif clean_input.lower() in ["connect", "mindsql connect"]:
-                console.print(Panel("[bold cyan]🔐 Server Login[/bold cyan]", box=box.ROUNDED))
+                console.print(Panel("[bold cyan]Server Login[/bold cyan]", box=box.ROUNDED))
                 c_user = session.prompt([('class:prompt', 'Username (e.g., root): ')]).strip() or "root"
                 c_pass = session.prompt([('class:prompt', 'Password: ')], is_password=True).strip()
                 c_host = session.prompt([('class:prompt', 'Host (default: localhost): ')]).strip() or "localhost"
@@ -683,7 +697,7 @@ def shell():
                         with temp_engine.connect() as conn:
                             db_list = [row[0] for row in conn.execute(text("SHOW DATABASES;")).fetchall()]
 
-                    console.print("\n[bold green]✅ Login Successful![/bold green]")
+                    console.print("\n[bold green]Login Successful![/bold green]")
                     console.print("[bold cyan]Select a database:[/bold cyan]")
                     for idx, name in enumerate(db_list, 1):
                         console.print(f"  [bold yellow]{idx}.[/bold yellow] {name}")
@@ -702,8 +716,8 @@ def shell():
                     if not target_db:
                         # No DB chosen — keep server engine alive for navigation
                         console.print(
-                            "[yellow]⚠ No database selected. "
-                            "Type 'use <db_name>' or 'switch' to select one.[/yellow]"
+                            "[yellow] No database selected. "
+                            "Type 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/yellow]"
                         )
                         engine         = None
                         db_url         = None
@@ -748,10 +762,9 @@ def shell():
             # --- PLOT MODE ---
 
             if user_input.lower().startswith("mindsql_plot"):
-                print("Plotting the graph")
                 #--reptition 1 begin---
                 if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                    console.print("[red] Not connected.[/red]")
                     continue
                 
                 natural_prompt = user_input[12:].strip()
@@ -771,31 +784,23 @@ def shell():
                     {'role': 'system', 'content': system_instruction},
                     {'role': 'user', 'content': natural_prompt}
                 ]
-                print(
-                   "Understanding user query\n"
-                   f"Mode : Plot Mode\n Message length : {len(messages)}\n System instruction lenght : {len(messages[0]['content'])}\n"
-                   f"User prompt length: {len(messages[1]['content'])}\n"
-                   "Schema included:", "Context:" in messages[0]['content']
-                )
-                with console.status(f"[bold yellow]📊 Generating Plot Data...[/bold yellow]", spinner="earth"):
+                with console.status(f"[bold yellow]Generating Plot Data...[/bold yellow]", spinner="earth"):
                     sql_code = mindsql_start(messages)
                     if sql_code and validate_plot_sql(sql_code):
                         console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), title="✨ Plotting SQL", border_style="yellow", box=box.ROUNDED))
-                        if input("🚀 Run Plot? (y/n): ").strip().lower() == 'y':
-                            print("Commencing sql execution....")
+                        if input("Run Plot? (y/n): ").strip().lower() == 'y':
                             data = execute_sql(engine, sql_code, return_data=True)
                             if data: 
                                 draw_ascii_bar_chart(data)
-                        print("Execution completed")
                     else:
-                        console.print("[red]❌ Invalid plot SQL. Must return LABEL + VALUE only.[/red]")
+                        console.print("[red]Invalid plot SQL. Must return LABEL + VALUE only.[/red]")
 
                 #--reptition 1 end---
 
             # CMD --- CHAT MODE (Updated for Chain of Thought) ---
             elif user_input.lower().startswith("mindsql_ans"):
                 if not engine:
-                    console.print("[red] No database selected.[/red]")
+                    console.print("[red] No database selected. Use 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/red]")
                     continue
 
                 natural_prompt = user_input[11:].strip()
@@ -811,18 +816,18 @@ def shell():
                 ]
 
                 # No retry loop needed, just a single AI call
-                with console.status("[bold green]💬 Asking AI...[/bold green]", spinner="dots"):
+                with console.status("[bold green]Asking AI...[/bold green]", spinner="dots"):
                     response      = llm.create_chat_completion(messages=messages, temperature=0.1)
                     full_response = response['choices'][0]['message']['content']
 
                 # Print the AI's explanation and suggested SQL
-                console.print(Panel(full_response, title="🤖 AI Answer",
+                console.print(Panel(full_response, title="AI Answer",
                                     border_style="green", box=box.ROUNDED))
 
             # CMD: MINDSQL — Strict mode: LLM generates SQL only, validated
             elif user_input.lower().startswith("mindsql"):
                 if not engine:
-                    console.print("[red] No database selected.[/red]")
+                    console.print("[red] No database selected. Use 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/red]")
                     continue
 
                 natural_prompt = user_input[7:].strip()
@@ -832,6 +837,7 @@ def shell():
                         "1. Output ONLY valid SQL code — no explanation.\n"
                         "2. Verify all columns exist in the schema before using them.\n"
                         "3. Use exact table and column names from the schema.\n"
+                        "4. STRICTLY use only the exact column names requested. DO NOT add unrequested columns, IDs, or timestamps.\n"
                         f"\nContext:\n{schema_context}"
                     )},
                     {'role': 'user', 'content': natural_prompt}
@@ -847,14 +853,15 @@ def shell():
                         # Terminate gracefully if no SQL was found
                         if not generated_sql:
                             console.print(Panel(
-                                "[bold yellow]⚠ Invalid request.[/bold yellow]\nI can only process database and SQL-related requests.", 
+                                "[bold yellow]Invalid request.[/bold yellow]\nI can only process database and SQL-related requests.", 
                                 border_style="yellow", box=box.ROUNDED
                             ))
                             break # Exits the retry loop immediately
+                        # This finds any 'VARCHAR' not followed by a '(' and forces it to 'VARCHAR(255)'
+                        generated_sql = re.sub(r'(?i)\bVARCHAR\b(?!\s*\()', 'VARCHAR(255)', generated_sql)
 
                         #--to check working of extract_table() & extract_columns()
                         tables, alias_map = extract_tables(generated_sql)
-                        print(f"Tables:\n{tables}\nAliases:\n{alias_map}")
 
                     console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
                                         title="Generated SQL", border_style="yellow", box=box.ROUNDED))
@@ -882,13 +889,13 @@ def shell():
                             SCHEMA_MAP = load_schema_map(engine)
                             generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
                             schema_context = load_file(SCHEMA_FILE) or ""
-                            console.print("[dim green]🔄 Schema cache updated by AI![/dim green]")
+                            console.print("[dim green]Schema cache updated by AI![/dim green]")
                         # ------------------------
                         break
 
                     except Exception as e:
                         if attempt < MAX_RETRIES - 1:
-                            console.print(f"[yellow]⚠ Error: {e}. Retrying...[/yellow]")
+                            console.print(f"[yellow] Error: {e}. Retrying...[/yellow]")
                             messages.append({'role': 'assistant', 'content': generated_sql})
                             messages.append({'role': 'user', 'content': f"Error: {str(e)}. Fix SQL."})
                         else:
@@ -896,18 +903,48 @@ def shell():
                         #--reptition 3 end---
 
             # STANDARD SQL — Pass directly to the database engine
-            # SHOW DATABASES is allowed even without a selected database
+            # Server level commands are allowed even without a selected database
             else:
-                if clean_input.upper() == "SHOW DATABASES":
+                upper_input = clean_input.upper()
+                is_server_cmd = (
+                    upper_input == "SHOW DATABASES" or 
+                    upper_input.startswith("CREATE DATABASE") or 
+                    upper_input.startswith("DROP DATABASE")
+                )
+
+                if is_server_cmd:
                     nav_engine = engine or server_engine
                     if nav_engine:
                         execute_sql(nav_engine, user_input)
+                        # --- NEW FIX: Handle dropping the active database ---
+                        if upper_input.startswith("DROP DATABASE"):
+                            current_db_name = make_url(db_url).database if db_url else None
+                            
+                            # Extract the exact database name being dropped (e.g., "demo1")
+                            parts = clean_input.split()
+                            if len(parts) >= 3:
+                                # Get the 3rd word and remove any trailing semicolons or backticks
+                                dropped_db = parts[2].replace(';', '').replace('`', '').strip()
+                                
+                                # Check for an EXACT match, ignoring case
+                                if current_db_name and current_db_name.lower() == dropped_db.lower():
+                                    console.print(f"[yellow] Active database '{current_db_name}' was dropped. Reverting to 'no db'.[/yellow]")
+                                    engine = None
+                                    db_url = None
+                                    SCHEMA_MAP = {}
+                                    schema_context = ""
+
+                                # Keep a server connection alive so 'switch' still works!
+                                if base_credentials["user"]:
+                                    s_url = f"{base_credentials['dialect']}://{base_credentials['user']}:{base_credentials['password']}@{base_credentials['host']}/"
+                                    server_engine = create_engine(s_url)
+                        # ----------------------------------------------------
                     else:
-                        console.print("[red] Not connected. Please 'connect' first.[/red]")
+                        console.print("[red]Not connected. Please 'connect' first.[/red]")
                     continue
 
                 if not engine:
-                    console.print("[red] No database selected. Use 'switch' or 'use <db_name>'.[/red]")
+                    console.print("[red]No database selected. Use 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/red]")
                     continue
 
                 execute_sql(engine, user_input)
@@ -920,7 +957,7 @@ def shell():
                     # Update the context for the LLM and the autocomplete engine
                     schema_context = load_file(SCHEMA_FILE) or ""
                     
-                    console.print("[dim green]🔄 Schema cache updated![/dim green]")
+                    console.print("[dim green]Schema cache updated![/dim green]")
                 # --- NEW REFRESH LOGIC ENDS HERE ---
 
 
