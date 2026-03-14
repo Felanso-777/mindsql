@@ -915,6 +915,29 @@ def shell():
                     nav_engine = engine or server_engine
                     if nav_engine:
                         execute_sql(nav_engine, user_input)
+                        # --- NEW FIX: Handle dropping the active database ---
+                        if upper_input.startswith("DROP DATABASE"):
+                            current_db_name = make_url(db_url).database if db_url else None
+                            
+                            # Extract the exact database name being dropped (e.g., "demo1")
+                            parts = clean_input.split()
+                            if len(parts) >= 3:
+                                # Get the 3rd word and remove any trailing semicolons or backticks
+                                dropped_db = parts[2].replace(';', '').replace('`', '').strip()
+                                
+                                # Check for an EXACT match, ignoring case
+                                if current_db_name and current_db_name.lower() == dropped_db.lower():
+                                    console.print(f"[yellow]⚠ Active database '{current_db_name}' was dropped. Reverting to 'no db'.[/yellow]")
+                                    engine = None
+                                    db_url = None
+                                    SCHEMA_MAP = {}
+                                    schema_context = ""
+
+                                # Keep a server connection alive so 'switch' still works!
+                                if base_credentials["user"]:
+                                    s_url = f"{base_credentials['dialect']}://{base_credentials['user']}:{base_credentials['password']}@{base_credentials['host']}/"
+                                    server_engine = create_engine(s_url)
+                        # ----------------------------------------------------
                     else:
                         console.print("[red] Not connected. Please 'connect' first.[/red]")
                     continue
