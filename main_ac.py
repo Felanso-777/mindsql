@@ -34,7 +34,6 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from pathlib import Path
-#import sql completer
 from sql_completer import SQLCompleter
 
 # =============================================================================
@@ -311,7 +310,7 @@ def extract_sql(text):
 # --to display the staring lines --
 def print_banner(db_url):
     console.clear()
-    banner_text = Text("MindSQL v10.3 (Chain of Thought)", style="bold magenta", justify="center")
+    banner_text = Text("MindSQL v1.1.1", style="bold magenta", justify="center")
     
     info_text = (
         f"\n[bold cyan]Connected to:[/bold cyan] {db_url}\n"
@@ -804,7 +803,7 @@ def shell():
                 for attempt in range(MAX_RETRIES):
                     
                     # 1. SPINNER STARTS HERE
-                    with console.status(f"[bold yellow]📊 Generating Plot (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
+                    with console.status(f"[bold yellow]📊 Generating Plot (Attempt {attempt+1})...[/bold yellow]", spinner="dots"):
                         sql_code = mindsql_start(messages)
                     # 2. SPINNER ENDS HERE (Notice the indentation stops)
 
@@ -887,7 +886,7 @@ def shell():
                 ]
 
                 for attempt in range(MAX_RETRIES):
-                    with console.status(f"[bold yellow]Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
+                    with console.status(f"[bold yellow]Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="dots"):
                         response = llm.create_chat_completion(messages=messages, temperature=0.1)
                         
                         # Do NOT fall back to raw content. If it's not SQL, let it be None.
