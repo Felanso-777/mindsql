@@ -596,18 +596,18 @@ def shell():
                     server_engine = create_engine(s_url)
                 except:
                     pass
-        # --- Prompt session setup ---
-        def get_current_schema_map():
-            # This function ensures the completer always has the freshest schema data
-            # even after you run CREATE or DROP commands.
-            return SCHEMA_MAP
+    # --- Prompt session setup ---
+    def get_current_schema_map():
+        # This function ensures the completer always has the freshest schema data
+        # even after you run CREATE or DROP commands.
+        return SCHEMA_MAP
 
-        session = PromptSession(
-            history=FileHistory(HISTORY_FILE),
-            style=Style.from_dict({'prompt': 'ansicyan bold'}),
-            completer=SQLCompleter(HISTORY_FILE, get_current_schema_map),
-            complete_while_typing=True
-        )
+    session = PromptSession(
+        history=FileHistory(HISTORY_FILE),
+        style=Style.from_dict({'prompt': 'ansicyan bold'}),
+        completer=SQLCompleter(HISTORY_FILE, get_current_schema_map),
+        complete_while_typing=True
+    )
 
 
     if engine:
