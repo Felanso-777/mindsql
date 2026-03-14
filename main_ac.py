@@ -12,6 +12,7 @@ import urllib.request
 import re
 import os
 import sys
+import time
 import sqlglot
 from sqlglot import exp
 from time import sleep
@@ -415,7 +416,7 @@ def draw_ascii_bar_chart(data: list):
     ]
 
     console.print()
-    console.print(Panel("[bold]📊 Chart Result[/bold]", style="blue",
+    console.print(Panel("[bold]Chart Result[/bold]", style="blue",
                         box=box.MINIMAL, expand=False))
 
     for i, (label, value) in enumerate(clean):
@@ -494,7 +495,7 @@ def execute_sql(engine, sql: str, raise_error=False, return_data=False):
                 
                 trans.commit()
                 if not return_data:
-                    console.print(Panel(f"[bold green]✓ Successfully ran {len(commands)} commands.[/bold green]", box=box.ROUNDED, style="green"))
+                    console.print(Panel(f"[bold green]Successfully ran {len(commands)} commands.[/bold green]", box=box.ROUNDED, style="green"))
                 
                 if return_data:
                     return last_result_data
@@ -508,10 +509,32 @@ def execute_sql(engine, sql: str, raise_error=False, return_data=False):
             raise e
         console.print(Panel(f"[bold red]SQL Execution Error[/bold red]\n{e}", style="red", box=box.ROUNDED))
         return None
+    
+def generate_text_with_timeout(messages: list, timeout: int = 45) -> str:
+    """Stream the LLM response to allow a strict timeout check."""
+    start_time = time.time()
+    response_text = ""
+    
+    # Enable streaming so we can interrupt it if it takes too long
+    generator = llm.create_chat_completion(
+        messages=messages, 
+        temperature=0.1, 
+        stream=True
+    )
+    
+    for chunk in generator:
+        if time.time() - start_time > timeout:
+            raise TimeoutError(f"AI timed out after {timeout} seconds.")
+            
+        delta = chunk['choices'][0]['delta']
+        if 'content' in delta:
+            response_text += delta['content']
+            
+    return response_text
+    
 def mindsql_start(messages: list) -> str | None:
     """Send messages to the local LLM and extract SQL from the response."""
-    response = llm.create_chat_completion(messages=messages, temperature=0.1)
-    ai_text = response['choices'][0]['message']['content']
+    ai_text = generate_text_with_timeout(messages, timeout=45)
     return extract_sql(ai_text)
 
 
@@ -801,24 +824,28 @@ def shell():
                 
                 plot_success = False
                 for attempt in range(MAX_RETRIES):
-                    
-                    # 1. SPINNER STARTS HERE
-                    with console.status(f"[bold yellow]📊 Generating Plot (Attempt {attempt+1})...[/bold yellow]", spinner="dots"):
-                        sql_code = mindsql_start(messages)
-                    # 2. SPINNER ENDS HERE (Notice the indentation stops)
+                    with console.status(f"[bold yellow]Generating Plot (Attempt {attempt+1}/{MAX_RETRIES}, max 45s)...[/bold yellow]", spinner="dots"):
+                        try:
+                            sql_code = mindsql_start(messages)
+                        except TimeoutError as e:
+                            console.print(f"\n[yellow]⏳ {e} Retrying...[/yellow]")
+                            sql_code = None
 
-                    # 3. NOW IT IS SAFE TO ASK FOR INPUT
                     if not sql_code:
-                        console.print("[red]AI failed to generate a valid SQL query.[/red]")
-                        break
+                        if attempt < MAX_RETRIES - 1:
+                            continue # Move to the next attempt
+                        else:
+                            console.print("[red]AI failed or timed out after 3 attempts. Stopping.[/red]")
+                            break
 
                     if sql_code.startswith("CLARIFICATION_NEEDED:"):
+                        # ... keep your existing clarification logic here ...
                         console.print(Panel(sql_code.replace("CLARIFICATION_NEEDED:", "").strip(),
                                             title="⚠ Clarification Needed", border_style="yellow"))
                         break
 
                     if validate_plot_sql(sql_code):
-                        console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), title="✨ Plotting SQL", border_style="yellow", box=box.ROUNDED))
+                        console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), title="Plotting SQL", border_style="yellow", box=box.ROUNDED))
                         
                         # Wait for the user to type 'y' and hit Enter
                         choice = input("Run Plot? (y/n): ").strip().lower()
@@ -857,14 +884,16 @@ def shell():
                     {'role': 'user', 'content': natural_prompt}
                 ]
 
-                # No retry loop needed, just a single AI call
-                with console.status("[bold green]Asking AI...[/bold green]", spinner="dots"):
-                    response      = llm.create_chat_completion(messages=messages, temperature=0.1)
-                    full_response = response['choices'][0]['message']['content']
-
-                # Print the AI's explanation and suggested SQL
-                console.print(Panel(full_response, title="AI Answer",
-                                    border_style="green", box=box.ROUNDED))
+                # No retry loop needed, just a single AI call with timeout
+                with console.status("[bold green]Asking AI (max 45s)...[/bold green]", spinner="dots"):
+                    try:
+                        full_response = generate_text_with_timeout(messages, timeout=45)
+                        console.print(Panel(full_response, title="AI Answer",
+                                            border_style="green", box=box.ROUNDED))
+                    except TimeoutError as e:
+                        console.print(Panel(f"[bold red]Timeout Error[/bold red]\n{e}\nPlease try again or simplify the prompt.", box=box.ROUNDED))
+                    except Exception as e:
+                        console.print(Panel(f"[bold red]Error[/bold red]\n{e}", box=box.ROUNDED))
 
             # CMD: MINDSQL — Strict mode: LLM generates SQL only, validated
             elif user_input.lower().startswith("mindsql"):
@@ -886,24 +915,27 @@ def shell():
                 ]
 
                 for attempt in range(MAX_RETRIES):
-                    with console.status(f"[bold yellow]Thinking (Attempt {attempt+1})...[/bold yellow]", spinner="dots"):
-                        response = llm.create_chat_completion(messages=messages, temperature=0.1)
+                    with console.status(f"[bold yellow]Thinking (Attempt {attempt+1}/{MAX_RETRIES}, max 45s)...[/bold yellow]", spinner="dots"):
+                        try:
+                            full_text = generate_text_with_timeout(messages, timeout=45)
+                            generated_sql = extract_sql(full_text)
+                        except TimeoutError as e:
+                            console.print(f"\n[yellow]⏳ {e} Retrying...[/yellow]")
+                            generated_sql = None
                         
-                        # Do NOT fall back to raw content. If it's not SQL, let it be None.
-                        generated_sql = extract_sql(response['choices'][0]['message']['content'])
-                        
-                        # Terminate gracefully if no SQL was found
+                        # Terminate gracefully if no SQL was found or timeout occurred on last try
                         if not generated_sql:
-                            console.print(Panel(
-                                "[bold yellow]Invalid request.[/bold yellow]\nI can only process database and SQL-related requests.", 
-                                border_style="yellow", box=box.ROUNDED
-                            ))
-                            break # Exits the retry loop immediately
+                            if attempt < MAX_RETRIES - 1:
+                                continue
+                            else:
+                                console.print(Panel(
+                                    "[bold yellow]Failed / Timed Out[/bold yellow]\nCould not process request within limits after 3 attempts.", 
+                                    border_style="yellow", box=box.ROUNDED
+                                ))
+                                break # Exits the retry loop
                         # This finds any 'VARCHAR' not followed by a '(' and forces it to 'VARCHAR(255)'
                         generated_sql = re.sub(r'(?i)\bVARCHAR\b(?!\s*\()', 'VARCHAR(255)', generated_sql)
 
-                        #--to check working of extract_table() & extract_columns()
-                        tables, alias_map = extract_tables(generated_sql)
 
                     console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
                                         title="Generated SQL", border_style="yellow", box=box.ROUNDED))
