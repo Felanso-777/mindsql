@@ -1,10 +1,13 @@
+# Authors : Adam felanso Sijo , Akhildev C Vasudevan ,Alex Chittilappilly, Alvin N.S
+# Project: MindSQL NL2SQL Tool
+
 name: Build and Release MindSQL
 
 on:
   push:
     tags:
-      - 'v*' # Triggered by tags like v1.0.0
-  workflow_dispatch: # Allows you to run it manually for testing
+      - 'v*'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -13,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest]
 
     steps:
     - name: Checkout Code
@@ -28,27 +31,15 @@ jobs:
       if: runner.os == 'Linux'
       run: sudo apt-get update && sudo apt-get install -y build-essential python3-dev
 
-    # Windows & Ubuntu Step: Uses pre-built CPU wheels to avoid "Building Wheel" errors
-    - name: Install Dependencies (Windows & Ubuntu)
-      if: matrix.os != 'macos-latest'
+    - name: Install Compilers and Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
+        # Fast pre-built CPU binaries
         pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
         pip install -r requirements.txt
 
-    # macOS Step: Forces binary-only install to prevent the 20-minute compilation hang
-    - name: Install Dependencies (macOS)
-      if: matrix.os == 'macos-latest'
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller
-        # This ignores the extra-index-url and just gets the standard version
-        pip install llama-cpp-python --only-binary=:all: 
-        pip install -r requirements.txt
-        
     - name: Build with PyInstaller
-      # Combined into one line to fix the Windows/PowerShell line-break error
       run: pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-${{ matrix.os }}" main_ac.py
 
     - name: Create Release
@@ -58,6 +49,5 @@ jobs:
         files: |
           dist/MindSQL-windows-latest.exe
           dist/MindSQL-ubuntu-latest
-          dist/MindSQL-macos-latest
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
