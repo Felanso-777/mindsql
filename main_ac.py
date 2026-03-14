@@ -239,7 +239,7 @@ def validate_sql_schema(sql,SCHEMA_MAP):
         elif col_table in valid_tables :
             real_table = col_table
         # case -3 : if alias not used , only single exists in query
-        elif col_table is None :
+        elif not col_table: # <--- FIX: This now catches both None and ""
             if len(valid_tables) == 1 :
                 real_table = list(valid_tables.keys())[0]
             else :
