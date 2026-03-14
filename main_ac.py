@@ -361,7 +361,7 @@ def generate_schema_text(schema_map, schema_file):
     
 #--Initialising DB connection--
 
-def perform_connection(connection_string):
+def perform_connection(connection_string, silent=False):
     with console.status(f"[bold blue]🔌 Connecting to {connection_string}...[/bold blue]", spinner="dots"):
         try:
             engine = create_engine(connection_string)
@@ -373,13 +373,14 @@ def perform_connection(connection_string):
                 console.print("[yellow]⚠ Connected, but DB is empty.[/yellow]")
             else:
                 generate_schema_text(SCHEMA_MAP, SCHEMA_FILE)
-
+            # Only save the file if the connection was successful
             save_file(DB_URL_FILE, connection_string)
 
             return engine, list(SCHEMA_MAP.keys())
 
         except Exception as e:
-            console.print(Panel(f"[bold red]Connection Failed[/bold red]\n{e}", style="red"))
+            if not silent:
+                console.print(Panel(f"[bold red]Connection Failed[/bold red]\n{e}", style="red"))
             return None, []
 
 # --- CHARTING FUNCTION ---
@@ -554,8 +555,25 @@ def shell():
     if db_url:
         # _ is Python convention for “unused variable”
         parse_credentials_from_url(db_url)
-        engine, _ = perform_connection(db_url)
-        schema_context = load_file(SCHEMA_FILE) or ""
+        # Pass silent=True so we don't show an error if the DB was dropped
+        engine, _ = perform_connection(db_url, silent=True)
+        if engine:
+            # Valid connection, resume normally
+            schema_context = load_file(SCHEMA_FILE) or ""
+        else:
+            # INVALID connection (DB deleted, server offline, etc.)
+            # Clear the file so it doesn't cause future issues!
+            save_file(DB_URL_FILE, "")
+            db_url = None
+            schema_context = ""
+            
+            # Start a server engine so 'switch' command still works
+            if base_credentials["user"]:
+                s_url = f"{base_credentials['dialect']}://{base_credentials['user']}:{base_credentials['password']}@{base_credentials['host']}/"
+                try:
+                    server_engine = create_engine(s_url)
+                except:
+                    pass
 
         # --- Prompt session setup ---
     session = PromptSession(
