@@ -320,6 +320,7 @@ def print_banner(db_url):
         "• [bold green]switch[/bold green]                 : Change Database\n"
         "• [bold green]connect[/bold green]                : Login Wizard\n"
         "• [bold magenta]set_tokens <num>[/bold magenta]       : Change AI Memory\n"
+        "• [bold yellow]CREATE/DROP DATABASE[/bold yellow]   : Server Management\n"
         "• [bold red]exit[/bold red]                   : Quit"
     )
 
@@ -708,7 +709,7 @@ def shell():
                         # No DB chosen — keep server engine alive for navigation
                         console.print(
                             "[yellow]⚠ No database selected. "
-                            "Type 'use <db_name>' or 'switch' to select one.[/yellow]"
+                            "Type 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/yellow]"
                         )
                         engine         = None
                         db_url         = None
@@ -756,7 +757,7 @@ def shell():
                 print("Plotting the graph")
                 #--reptition 1 begin---
                 if not engine:
-                    console.print("[red]❌ Not connected.[/red]")
+                    console.print("[red] Not connected.[/red]")
                     continue
                 
                 natural_prompt = user_input[12:].strip()
@@ -800,7 +801,7 @@ def shell():
             # CMD --- CHAT MODE (Updated for Chain of Thought) ---
             elif user_input.lower().startswith("mindsql_ans"):
                 if not engine:
-                    console.print("[red] No database selected.[/red]")
+                    console.print("[red] No database selected. Use 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/red]")
                     continue
 
                 natural_prompt = user_input[11:].strip()
@@ -827,7 +828,7 @@ def shell():
             # CMD: MINDSQL — Strict mode: LLM generates SQL only, validated
             elif user_input.lower().startswith("mindsql"):
                 if not engine:
-                    console.print("[red] No database selected.[/red]")
+                    console.print("[red] No database selected. Use 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/red]")
                     continue
 
                 natural_prompt = user_input[7:].strip()
@@ -901,9 +902,16 @@ def shell():
                         #--reptition 3 end---
 
             # STANDARD SQL — Pass directly to the database engine
-            # SHOW DATABASES is allowed even without a selected database
+            # Server level commands are allowed even without a selected database
             else:
-                if clean_input.upper() == "SHOW DATABASES":
+                upper_input = clean_input.upper()
+                is_server_cmd = (
+                    upper_input == "SHOW DATABASES" or 
+                    upper_input.startswith("CREATE DATABASE") or 
+                    upper_input.startswith("DROP DATABASE")
+                )
+
+                if is_server_cmd:
                     nav_engine = engine or server_engine
                     if nav_engine:
                         execute_sql(nav_engine, user_input)
@@ -912,7 +920,7 @@ def shell():
                     continue
 
                 if not engine:
-                    console.print("[red] No database selected. Use 'switch' or 'use <db_name>'.[/red]")
+                    console.print("[red] No database selected. Use 'switch', 'use <db_name>', or 'CREATE DATABASE <name>;'.[/red]")
                     continue
 
                 execute_sql(engine, user_input)
