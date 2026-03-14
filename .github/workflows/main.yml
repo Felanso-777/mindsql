@@ -31,7 +31,7 @@ jobs:
       if: runner.os == 'Linux'
       run: sudo apt-get update && sudo apt-get install -y build-essential python3-dev
 
-    - name: Install Compilers and Dependencies
+    - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
@@ -41,29 +41,31 @@ jobs:
     - name: Build with PyInstaller
       run: pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-${{ matrix.os }}" main_ac.py
 
-    # IMPORTANT: Save the file to a "waiting room" instead of releasing immediately
+    # This saves the file into GitHub's cloud storage temporarily
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MindSQL-${{ matrix.os }}
         path: dist/MindSQL-*
+        if-no-files-found: error
 
   publish:
     name: Create Final Release
-    needs: build # This makes this job WAIT for both Windows and Ubuntu to finish
+    needs: build # THIS IS THE FIX: Wait for both Windows and Ubuntu to finish!
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
       with:
-        path: ./artifacts
+        path: ./all_artifacts # Download everything into one main folder
 
     - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
       with:
+        # We point to the specific subfolders created by the download step
         files: |
-          ./artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
-          ./artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
+          ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
+          ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
