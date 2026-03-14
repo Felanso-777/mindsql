@@ -35,19 +35,35 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        # Fast pre-built CPU binaries
         pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
         pip install -r requirements.txt
 
     - name: Build with PyInstaller
       run: pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-${{ matrix.os }}" main_ac.py
 
-    - name: Create Release
+    # IMPORTANT: Save the file to a "waiting room" instead of releasing immediately
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MindSQL-${{ matrix.os }}
+        path: dist/MindSQL-*
+
+  publish:
+    name: Create Final Release
+    needs: build # This makes this job WAIT for both Windows and Ubuntu to finish
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+
+    - name: Create GitHub Release
       uses: softprops/action-gh-release@v2
-      if: startsWith(github.ref, 'refs/tags/')
       with:
         files: |
-          dist/MindSQL-windows-latest.exe
-          dist/MindSQL-ubuntu-latest
+          ./artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
+          ./artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
