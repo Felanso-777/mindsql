@@ -311,12 +311,17 @@ def print_banner(db_url):
     console.clear()
     banner_text = Text("MindSQL v10.3 (Chain of Thought)", style="bold magenta", justify="center")
     
-    info_text = f"\n[bold cyan]Connected to:[/bold cyan] {db_url}\n"
-    info_text += "[dim]──────────────────────────────────────────────[/dim]\n"
-    info_text += "• [bold cyan]mindsql <text>[/bold cyan]       : Strict SQL\n"
-    info_text += "• [bold cyan]mindsql_ans <text>[/bold cyan]   : Chat & Explain\n"
-    info_text += "• [bold yellow]mindsql_plot <text>[/bold yellow]  : Generate Charts 📊\n"
-    info_text += "• [bold red]exit[/bold red]                  : Quit"
+    info_text = (
+        f"\n[bold cyan]Connected to:[/bold cyan] {db_url}\n"
+        "[dim]──────────────────────────────────────────────[/dim]\n"
+        "• [bold cyan]mindsql <text>[/bold cyan]       : Strict SQL\n"
+        "• [bold cyan]mindsql_ans <text>[/bold cyan]   : Chat & Explain\n"
+        "• [bold yellow]mindsql_plot <text>[/bold yellow]  : Generate Charts 📊\n"
+        "• [bold green]switch[/bold green]                 : Change Database\n"
+        "• [bold green]connect[/bold green]                : Login Wizard\n"
+        "• [bold magenta]set_tokens <num>[/bold magenta]       : Change AI Memory\n"
+        "• [bold red]exit[/bold red]                   : Quit"
+    )
 
     console.print(Panel(
         info_text,
