@@ -32,18 +32,13 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        # Use pre-built CPU binaries to avoid the "Building Wheel" hang/error
-        pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+        # Force pip to use the CPU wheel for llama-cpp to avoid CMake errors
+        pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
         pip install -r requirements.txt
-
+        
     - name: Build with PyInstaller
-      # We use main_ac.py as the entry point. 
-      # Ensure main_ac.py "imports main" if you want both to run!
-      run: |
-        pyinstaller --onefile --clean \
-        --collect-all llama_cpp \
-        --name "MindSQL-${{ matrix.os }}" \
-        main_ac.py
+      # Combined into one line to fix the Windows/PowerShell line-break error
+      run: pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-${{ matrix.os }}" main_ac.py
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
