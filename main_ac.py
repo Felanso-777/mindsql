@@ -384,45 +384,53 @@ def perform_connection(connection_string, silent=False):
             return None, []
 
 # --- CHARTING FUNCTION ---
-def draw_ascii_bar_chart(data):
+def draw_ascii_bar_chart(data: list):
     """
-    Expects data as a list of tuples: [("Label", Value), ...]
+    Renders a color-coded horizontal bar chart in the terminal.
+    Expects: [(label, numeric_value), …]
     """
     if not data:
         console.print("[yellow]No data to plot.[/yellow]")
         return
 
     try:
-        clean_data = [(str(row[0]), float(row[1])) for row in data if row[1] is not None]
-    except ValueError:
-        console.print("[red]Error: Plot data must contain a Label and a Number.[/red]")
+        clean = [(str(r[0]), float(r[1])) for r in data if r[1] is not None]
+    except (ValueError, TypeError, IndexError):
+        console.print("[red]Plot error: data must have a label and a numeric value.[/red]")
         return
 
-    if not clean_data:
-        console.print("[yellow]No valid numeric data found.[/yellow]")
+    if not clean:
+        console.print("[yellow]No valid numeric data.[/yellow]")
         return
 
-    max_label_len = max(len(d[0]) for d in clean_data)
-    max_val = max(d[1] for d in clean_data)
-    bar_width = 40 
+    max_label = max(len(d[0]) for d in clean)
+    max_val   = max(d[1] for d in clean) or 1
+    bar_width = 44
+
+    palette = [
+        "spring_green1", "cyan1", "magenta1",
+        "yellow1", "dodger_blue1", "dark_orange",
+        "orchid1", "chartreuse1",
+    ]
 
     console.print()
-    console.print(Panel("[bold]Analysis Result[/bold]", style="blue", box=box.MINIMAL, expand=False))
+    console.print(Panel("[bold]📊 Chart Result[/bold]", style="blue",
+                        box=box.MINIMAL, expand=False))
 
-    for label, value in clean_data:
-        if max_val > 0:
-            filled_len = int((value / max_val) * bar_width)
-        else:
-            filled_len = 0
-            
-        bar = "█" * filled_len
-        color = "spring_green1" 
-        if value < (max_val * 0.3): color = "red"
-        elif value < (max_val * 0.7): color = "yellow"
+    for i, (label, value) in enumerate(clean):
+        filled = int((value / max_val) * bar_width)
+        bar    = "█" * filled
+        empty  = "░" * (bar_width - filled)
+        color  = palette[i % len(palette)]
+        pct    = (value / max_val) * 100
+        console.print(
+            f"{label.rjust(max_label)} │ "
+            f"[{color}]{bar}[/{color}][dim]{empty}[/dim]"
+            f"  [bold white]{value}[/bold white] [dim]({pct:.1f}%)[/dim]"
+        )
 
-        console.print(f"{label.rjust(max_label_len)} │ [{color}]{bar}[/{color}]  [bold white]{value}[/bold white]")
-    
     console.print()
+    console.print(f"[dim]Total rows: {len(clean)}[/dim]\n")
 
 #--Validator function --
 
@@ -761,40 +769,68 @@ def shell():
 
             # --- PLOT MODE ---
 
-            if user_input.lower().startswith("mindsql_plot"):
-                #--reptition 1 begin---
+           
+            
+            elif user_input.lower().startswith("mindsql_plot"):
                 if not engine:
                     console.print("[red] Not connected.[/red]")
                     continue
                 
                 natural_prompt = user_input[12:].strip()
                 
-                # Plotting Prompt
+                # Upgraded Plotting Instruction
                 system_instruction = (
-                    "You are a Data Visualization Assistant.\n"
+                    "You are a Data Visualization Assistant. Output ONLY raw SQL.\n"
                     "RULES:\n"
-                    "1. Return SQL that produces EXACTLY 2 COLUMNS.\n"
-                    "2. Column 1 = LABEL (Text).\n"
-                    "3. Column 2 = VALUE (Number).\n"
-                    "4. Output ONLY SQL.\n"
+                    "1. TWO COLUMNS: Alias col 1 as 'LABEL' (text), col 2 as 'VALUE' (number).\n"
+                    "2. AGGREGATE: Always use SUM/COUNT/AVG with GROUP BY.\n"
+                    "3. No explanations. Output only the SELECT statement.\n"
                     f"\nContext:\n{schema_context}"
                 )
                 
                 messages = [
                     {'role': 'system', 'content': system_instruction},
-                    {'role': 'user', 'content': natural_prompt}
+                    {'role': 'user', 'content': f"Request: {natural_prompt}"}
                 ]
-                with console.status(f"[bold yellow]Generating Plot Data...[/bold yellow]", spinner="earth"):
-                    sql_code = mindsql_start(messages)
-                    if sql_code and validate_plot_sql(sql_code):
+                
+                plot_success = False
+                for attempt in range(MAX_RETRIES):
+                    
+                    # 1. SPINNER STARTS HERE
+                    with console.status(f"[bold yellow]📊 Generating Plot (Attempt {attempt+1})...[/bold yellow]", spinner="earth"):
+                        sql_code = mindsql_start(messages)
+                    # 2. SPINNER ENDS HERE (Notice the indentation stops)
+
+                    # 3. NOW IT IS SAFE TO ASK FOR INPUT
+                    if not sql_code:
+                        console.print("[red]AI failed to generate a valid SQL query.[/red]")
+                        break
+
+                    if sql_code.startswith("CLARIFICATION_NEEDED:"):
+                        console.print(Panel(sql_code.replace("CLARIFICATION_NEEDED:", "").strip(),
+                                            title="⚠ Clarification Needed", border_style="yellow"))
+                        break
+
+                    if validate_plot_sql(sql_code):
                         console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), title="✨ Plotting SQL", border_style="yellow", box=box.ROUNDED))
-                        if input("Run Plot? (y/n): ").strip().lower() == 'y':
+                        
+                        # Wait for the user to type 'y' and hit Enter
+                        choice = input("Run Plot? (y/n): ").strip().lower()
+                        if choice == 'y':
                             data = execute_sql(engine, sql_code, return_data=True)
                             if data: 
                                 draw_ascii_bar_chart(data)
+                        
+                        plot_success = True
+                        break  # Exit the retry loop
                     else:
-                        console.print("[red]Invalid plot SQL. Must return LABEL + VALUE only.[/red]")
-
+                        if attempt < MAX_RETRIES - 1:
+                            messages.append({'role': 'assistant', 'content': sql_code})
+                            messages.append({'role': 'user', 'content': "ERROR: Return exactly 2 cols: LABEL and aggregated VALUE."})
+                
+                if not plot_success and sql_code and not sql_code.startswith("CLARIFICATION_NEEDED:"):
+                    console.print("[red]Plot failed after retries. Invalid plot SQL. Must return LABEL + VALUE only.[/red]")
+                continue
                 #--reptition 1 end---
 
             # CMD --- CHAT MODE (Updated for Chain of Thought) ---
