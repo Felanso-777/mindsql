@@ -856,6 +856,7 @@ def shell():
                         "1. Output ONLY valid SQL code — no explanation.\n"
                         "2. Verify all columns exist in the schema before using them.\n"
                         "3. Use exact table and column names from the schema.\n"
+                        "4. STRICTLY use only the exact column names requested. DO NOT add unrequested columns, IDs, or timestamps.\n"
                         f"\nContext:\n{schema_context}"
                     )},
                     {'role': 'user', 'content': natural_prompt}
@@ -875,6 +876,8 @@ def shell():
                                 border_style="yellow", box=box.ROUNDED
                             ))
                             break # Exits the retry loop immediately
+                        # This finds any 'VARCHAR' not followed by a '(' and forces it to 'VARCHAR(255)'
+                        generated_sql = re.sub(r'(?i)\bVARCHAR\b(?!\s*\()', 'VARCHAR(255)', generated_sql)
 
                         #--to check working of extract_table() & extract_columns()
                         tables, alias_map = extract_tables(generated_sql)
