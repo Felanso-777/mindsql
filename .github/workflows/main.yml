@@ -108,3 +108,6 @@ jobs:
           ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
           ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
           ./all_artifacts/MindSQL-macos-latest
+          logos/ubuntu.png
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
