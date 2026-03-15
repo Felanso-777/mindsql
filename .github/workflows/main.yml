@@ -10,17 +10,13 @@ on:
   workflow_dispatch:
 
 jobs:
-
-  # ─────────────────────────────────────────────────────
-  # WINDOWS + MACOS
-  # ─────────────────────────────────────────────────────
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os == 'macos-latest' && 'macos-14' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
 
     steps:
     - name: Checkout Code
@@ -33,7 +29,9 @@ jobs:
 
     - name: Install Build Tools
       run: |
-        if [ "${{ runner.os }}" == "macOS" ]; then
+        if [ "${{ runner.os }}" == "Linux" ]; then
+          sudo apt-get update && sudo apt-get install -y build-essential python3-dev
+        elif [ "${{ runner.os }}" == "macOS" ]; then
           xcode-select --install || true
         fi
       shell: bash
@@ -45,115 +43,59 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        if [ "${{ runner.os }}" != "macOS" ]; then
+        
+        # Windows keeps its original fast wheel installation
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
           pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-        else
+          
+        # macOS keeps its original setup untouched
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           pip install llama-cpp-python
+          
+        # Ubuntu forces a source build to avoid 'musl' (Alpine) compatibility errors on standard glibc Linux distros
+        else
+          pip install llama-cpp-python --no-binary llama-cpp-python
         fi
+        
         pip install -r requirements.txt
       shell: bash
 
     - name: Build with PyInstaller
       run: |
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          pyinstaller --onefile --clean --icon="logos/windows.ico" \
-            --collect-all llama_cpp \
-            --name "MindSQL-windows-latest" \
-            main_ac.py
-
+          pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
+          
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-          # FIX: Use getattr to safely get _file_ path
-          # avoids shell stripping __ to _ inside quotes
-          LLAMA_PATH=$(python -c "import llama_cpp, os; p = getattr(llama_cpp, '_file_'); print(os.path.dirname(os.path.abspath(p)))")
-          echo "llama_cpp path: $LLAMA_PATH"
-
+          # Find the actual path of the llama_cpp package
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp._file_))")
+          
+          # Check if the metal file exists. If it does, add it. If not, build without it (CPU only).
           if [ -f "$LLAMA_PATH/ggml-metal.metal" ]; then
-            echo "Metal file found. Building with Metal support..."
-            pyinstaller --onefile --clean --icon="logos/mac.icns" \
-              --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" \
-              --collect-all llama_cpp \
-              --name "MindSQL-macos-latest" \
-              main_ac.py
+            echo "Metal file found at $LLAMA_PATH. Adding to bundle..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
           else
-            echo "Metal file NOT found. Building CPU-only..."
-            pyinstaller --onefile --clean --icon="logos/mac.icns" \
-              --collect-all llama_cpp \
-              --name "MindSQL-macos-latest" \
-              main_ac.py
+            echo "Metal file NOT found. Building CPU-only version..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
           fi
+          
+        else
+          # Ubuntu: Explicitly ensure the freshly compiled native libllama.so is bundled
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp._file_))")
+          pyinstaller --onefile --clean --add-binary "$LLAMA_PATH/lib/libllama.so:llama_cpp/lib" --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
         fi
       shell: bash
-
-    - name: Upload Windows Artifact
-      if: matrix.os == 'windows-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: MindSQL-windows-latest
-        path: dist/MindSQL-windows-latest.exe
-        if-no-files-found: error
-
-    - name: Upload macOS Artifact
-      if: matrix.os == 'macos-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: MindSQL-macos-latest
-        path: dist/MindSQL-macos-latest
-        if-no-files-found: error
-
-  # ─────────────────────────────────────────────────────────────────
-  # UBUNTU — ubuntu-20.04 + source build
-  # Fixes musl error AND the manylinux shared library error
-  # Works on: Ubuntu 20.04+, Linux Mint 20+, Debian 11+, Fedora 32+
-  # ─────────────────────────────────────────────────────────────────
-  build-linux:
-    name: Build for Linux
-    runs-on: ubuntu-20.04   # glibc 2.31 — no musl, wide compatibility
-
-    steps:
-    - name: Checkout Code
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install Build Tools
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y build-essential python3-dev cmake
-
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install pyinstaller
-        # --no-binary forces source compile → links glibc not musl
-        pip install llama-cpp-python --no-binary llama-cpp-python
-        pip install -r requirements.txt
-
-    - name: Build with PyInstaller
-      run: |
-        pyinstaller --onefile --clean \
-          --collect-all llama_cpp \
-          --name "MindSQL-ubuntu-latest" \
-          main_ac.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: MindSQL-ubuntu-latest
-        path: dist/MindSQL-ubuntu-latest
-        if-no-files-found: error
+        name: MindSQL-${{ matrix.os }}
+        path: dist/MindSQL-*
 
-  # ──────────────────────────────────────────
-  # RELEASE
-  # ──────────────────────────────────────────
   publish:
     name: Create Final Release
-    needs: [build, build-linux]
+    needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
-
     steps:
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
@@ -167,5 +109,6 @@ jobs:
           ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
           ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
           ./all_artifacts/MindSQL-macos-latest/MindSQL-macos-latest
+          logos/ubuntu.png
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
