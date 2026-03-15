@@ -107,7 +107,123 @@ jobs:
         files: |
           ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
           ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
-          ./all_artifacts/MindSQL-macos-latest
+          ./all_artifacts/MindSQL-macos-latest/# Authors: Adam Felanso Sijo, Akhildev C Vasudevan, Alex Chittilappilly, Alvin N.S
+# Project: MindSQL NL2SQL Tool
+
+name: Build and Release MindSQL
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'macos-latest' && 'macos-14' || matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Build Tools
+      run: |
+        if [ "${{ runner.os }}" == "Linux" ]; then
+          sudo apt-get update && sudo apt-get install -y build-essential python3-dev
+        elif [ "${{ runner.os }}" == "macOS" ]; then
+          xcode-select --install || true
+        fi
+      shell: bash
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+       
+        # Windows keeps its original fast wheel installation
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+         
+        # macOS gets its specific Apple Metal build flags applied ONLY here
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          export CMAKE_ARGS="-DGGML_METAL=on -DCMAKE_OSX_ARCHITECTURES=arm64"
+          export FORCE_CMAKE=1
+          pip install llama-cpp-python
+         
+        # Ubuntu forces a source build WITHOUT the Mac flags
+        else
+          pip install llama-cpp-python --no-binary llama-cpp-python
+        fi
+       
+        pip install -r requirements.txt
+      shell: bash
+
+    - name: Build with PyInstaller
+      run: |
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+          pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
+         
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          # Fixed the double underscores here (__file__)
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+         
+          if [ -f "$LLAMA_PATH/ggml-metal.metal" ]; then
+            echo "Metal file found at $LLAMA_PATH. Adding to bundle..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
+          else
+            echo "Metal file NOT found. Building CPU-only version..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
+          fi
+         
+        else
+          # Ubuntu: Fixed the double underscores here (__file__)
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+          pyinstaller --onefile --clean --add-binary "$LLAMA_PATH/lib/libllama.so:llama_cpp/lib" --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
+        fi
+      shell: bash
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MindSQL-${{ matrix.os }}
+        path: dist/MindSQL-*
+
+  publish:
+    name: Create Final Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./all_artifacts
+
+    - name: Zip macOS Asset for Release
+      run: |
+        cd ./all_artifacts/MindSQL-macos-latest
+        zip -r MindSQL-macos-latest.zip .
+       
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
+          ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
+          ./all_artifacts/MindSQL-macos-latest/MindSQL-macos-latest
+          logos/ubuntu.png
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           logos/ubuntu.png
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
