@@ -389,7 +389,7 @@ def perform_connection(connection_string, silent=False):
 def draw_ascii_bar_chart(data: list):
     """
     Renders a color-coded horizontal bar chart in the terminal.
-    Expects: [(label, numeric_value), …]
+    Uses Graph Theory Greedy Coloring to ensure adjacent bars are strictly different.
     """
     if not data:
         console.print("[yellow]No data to plot.[/yellow]")
@@ -410,24 +410,42 @@ def draw_ascii_bar_chart(data: list):
     bar_width = 44
 
     palette = [
-        "spring_green1", "cyan1", "magenta1",
-        "yellow1", "dodger_blue1", "dark_orange",
-        "orchid1", "chartreuse1",
+        "bright_green",  # Distinct Neon Green
+        "magenta1",      # Distinct Bright Pink/Purple
+        "cyan1",         # Distinct Light Blue
+        "bright_yellow", # Distinct Yellow
+        "dodger_blue1",  # Distinct Solid Blue
+        "dark_orange",   # Distinct Orange
+        "medium_purple1",# Distinct Deep Purple
+        "red1",          # Distinct Pure Red
+        "white"          # Distinct Neutral
     ]
 
     console.print()
     console.print(Panel("[bold]Chart Result[/bold]", style="blue",
                         box=box.MINIMAL, expand=False))
+    prev_color = None
+    color_idx = 0
 
     for i, (label, value) in enumerate(clean):
         filled = int((value / max_val) * bar_width)
         bar    = "█" * filled
         empty  = "░" * (bar_width - filled)
-        color  = palette[i % len(palette)]
-        pct    = (value / max_val) * 100
+        # GRAPH THEORY: Greedy Coloring Check
+        # Ensure the current color is never the same as the adjacent (previous) bar
+        current_color = palette[color_idx % len(palette)]
+        if current_color == prev_color:
+            color_idx += 1
+            current_color = palette[color_idx % len(palette)]
+            
+        prev_color = current_color
+        color_idx += 1 # Advance for the next iteration
+
+        pct = (value / max_val) * 100
+        
         console.print(
             f"{label.rjust(max_label)} │ "
-            f"[{color}]{bar}[/{color}][dim]{empty}[/dim]"
+            f"[{current_color}]{bar}[/{current_color}][dim]{empty}[/dim]"
             f"  [bold white]{value}[/bold white] [dim]({pct:.1f}%)[/dim]"
         )
 
