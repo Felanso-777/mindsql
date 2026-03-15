@@ -1,5 +1,5 @@
 # Authors: Adam Felanso Sijo, Akhildev C Vasudevan, Alex Chittilappilly, Alvin N.S
-# Project: MindSQL NL2SQL Tool 
+# Project: MindSQL NL2SQL Tool
 
 name: Build and Release MindSQL
 
@@ -10,8 +10,9 @@ on:
   workflow_dispatch:
 
 jobs:
+
   # ─────────────────────────────────────────────────────
-  # JOB 1: WINDOWS & MACOS
+  # WINDOWS + MACOS
   # ─────────────────────────────────────────────────────
   build:
     name: Build for ${{ matrix.os }}
@@ -30,6 +31,13 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: Install Build Tools
+      run: |
+        if [ "${{ runner.os }}" == "macOS" ]; then
+          xcode-select --install || true
+        fi
+      shell: bash
+
     - name: Install Dependencies
       env:
         CMAKE_ARGS: "-DGGML_METAL=on -DCMAKE_OSX_ARCHITECTURES=arm64"
@@ -37,10 +45,10 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        if [ "${{ runner.os }}" == "macOS" ]; then
-          pip install llama-cpp-python
-        else
+        if [ "${{ runner.os }}" != "macOS" ]; then
           pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+        else
+          pip install llama-cpp-python
         fi
         pip install -r requirements.txt
       shell: bash
@@ -48,26 +56,58 @@ jobs:
     - name: Build with PyInstaller
       run: |
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
-          pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
+          pyinstaller --onefile --clean --icon="logos/windows.ico" \
+            --collect-all llama_cpp \
+            --name "MindSQL-windows-latest" \
+            main_ac.py
+
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-          # FIX: Corrected to double underscores __file__
-          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
-          pyinstaller --onefile --windowed --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
+          # FIX: Use getattr to safely get _file_ path
+          # avoids shell stripping __ to _ inside quotes
+          LLAMA_PATH=$(python -c "import llama_cpp, os; p = getattr(llama_cpp, '_file_'); print(os.path.dirname(os.path.abspath(p)))")
+          echo "llama_cpp path: $LLAMA_PATH"
+
+          if [ -f "$LLAMA_PATH/ggml-metal.metal" ]; then
+            echo "Metal file found. Building with Metal support..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" \
+              --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" \
+              --collect-all llama_cpp \
+              --name "MindSQL-macos-latest" \
+              main_ac.py
+          else
+            echo "Metal file NOT found. Building CPU-only..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" \
+              --collect-all llama_cpp \
+              --name "MindSQL-macos-latest" \
+              main_ac.py
+          fi
         fi
       shell: bash
 
-    - name: Upload Artifact
+    - name: Upload Windows Artifact
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: MindSQL-${{ matrix.os }}
-        path: dist/MindSQL-*
+        name: MindSQL-windows-latest
+        path: dist/MindSQL-windows-latest.exe
+        if-no-files-found: error
 
-  # ─────────────────────────────────────────────────────
-  # JOB 2: LINUX (Universal Compatibility)
-  # ─────────────────────────────────────────────────────
+    - name: Upload macOS Artifact
+      if: matrix.os == 'macos-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: MindSQL-macos-latest
+        path: dist/MindSQL-macos-latest
+        if-no-files-found: error
+
+  # ─────────────────────────────────────────────────────────────────
+  # UBUNTU — ubuntu-20.04 + source build
+  # Fixes musl error AND the manylinux shared library error
+  # Works on: Ubuntu 20.04+, Linux Mint 20+, Debian 11+, Fedora 32+
+  # ─────────────────────────────────────────────────────────────────
   build-linux:
     name: Build for Linux
-    runs-on: ubuntu-20.04 # Older Ubuntu = Better cross-distro compatibility
+    runs-on: ubuntu-20.04   # glibc 2.31 — no musl, wide compatibility
 
     steps:
     - name: Checkout Code
@@ -87,28 +127,33 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        # Force local build to ensure glibc compatibility
-        pip install --no-binary llama-cpp-python llama-cpp-python
+        # --no-binary forces source compile → links glibc not musl
+        pip install llama-cpp-python --no-binary llama-cpp-python
         pip install -r requirements.txt
 
     - name: Build with PyInstaller
       run: |
-        pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
+        pyinstaller --onefile --clean \
+          --collect-all llama_cpp \
+          --name "MindSQL-ubuntu-latest" \
+          main_ac.py
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: MindSQL-ubuntu-latest
         path: dist/MindSQL-ubuntu-latest
+        if-no-files-found: error
 
-  # ─────────────────────────────────────────────────────
-  # JOB 3: PUBLISH
-  # ─────────────────────────────────────────────────────
+  # ──────────────────────────────────────────
+  # RELEASE
+  # ──────────────────────────────────────────
   publish:
     name: Create Final Release
     needs: [build, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+
     steps:
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
@@ -122,6 +167,5 @@ jobs:
           ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
           ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
           ./all_artifacts/MindSQL-macos-latest/MindSQL-macos-latest
-          logos/ubuntu.png
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
