@@ -312,9 +312,18 @@ def extract_sql(text):
 def print_banner(db_url):
     console.clear()
     banner_text = Text("MindSQL v1.1.1", style="bold magenta", justify="center")
-    
+    # Safely parse the URL to hide the password
+    safe_display = "Not Connected"
+    if db_url:
+        try:
+            parsed = make_url(db_url)
+            db_name = parsed.database if parsed.database else "No Database"
+            # Format: username@host ➔ database
+            safe_display = f"{parsed.username}@{parsed.host} ➔ {db_name}"
+        except Exception:
+            safe_display = "Unknown Database"
     info_text = (
-        f"\n[bold cyan]Connected to:[/bold cyan] {db_url}\n"
+        f"\n[bold cyan]Connected to:[/bold cyan] [bold green]{safe_display}[/bold green]\n"
         "[dim]──────────────────────────────────────────────[/dim]\n"
         "• [bold cyan]mindsql <text>[/bold cyan]       : Strict SQL\n"
         "• [bold cyan]mindsql_ans <text>[/bold cyan]   : Chat & Explain\n"
