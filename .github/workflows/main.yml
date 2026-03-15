@@ -37,17 +37,26 @@ jobs:
       shell: bash
 
     - name: Install Dependencies
-      env:
-        CMAKE_ARGS: "-DGGML_METAL=on -DCMAKE_OSX_ARCHITECTURES=arm64"
-        FORCE_CMAKE: 1
+      # REMOVED the global env block from here!
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        if [ "${{ runner.os }}" != "macOS" ]; then
+        
+        # Windows keeps its original fast wheel installation
+        if [ "${{ matrix.os }}" == "windows-latest" ]; then
           pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-        else
+          
+        # macOS gets its specific Apple Metal build flags applied ONLY here
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          export CMAKE_ARGS="-DGGML_METAL=on -DCMAKE_OSX_ARCHITECTURES=arm64"
+          export FORCE_CMAKE=1
           pip install llama-cpp-python
+          
+        # Ubuntu forces a source build WITHOUT the Mac flags
+        else
+          pip install llama-cpp-python --no-binary llama-cpp-python
         fi
+        
         pip install -r requirements.txt
       shell: bash
 
@@ -55,11 +64,11 @@ jobs:
       run: |
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
-        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-          # Find the actual path of the llama_cpp package
-          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp._file_))")
           
-          # Check if the metal file exists. If it does, add it. If not, build without it (CPU only).
+        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
+          # Fixed the double underscores here (__file__)
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+          
           if [ -f "$LLAMA_PATH/ggml-metal.metal" ]; then
             echo "Metal file found at $LLAMA_PATH. Adding to bundle..."
             pyinstaller --onefile --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
@@ -67,8 +76,11 @@ jobs:
             echo "Metal file NOT found. Building CPU-only version..."
             pyinstaller --onefile --clean --icon="logos/mac.icns" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
           fi
+          
         else
-          pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
+          # Ubuntu: Fixed the double underscores here (__file__)
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
+          pyinstaller --onefile --clean --add-binary "$LLAMA_PATH/lib/libllama.so:llama_cpp/lib" --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
         fi
       shell: bash
 
@@ -95,7 +107,4 @@ jobs:
         files: |
           ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
           ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
-          ./all_artifacts/MindSQL-macos-latest/MindSQL-macos-latest
-          logos/ubuntu.png
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ./all_artifacts/MindSQL-macos-lates
