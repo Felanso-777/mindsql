@@ -311,7 +311,11 @@ def extract_sql(text):
 # --to display the staring lines --
 def print_banner(db_url):
     console.clear()
-    banner_text = Text("MindSQL v1.1.1", style="bold magenta", justify="center")
+    banner_text = Text(justify="center")
+
+    banner_text.append("Mind", style="bold grey66")
+    banner_text.append("SQL", style="bold dodger_blue1")
+    banner_text.append(" v1.1.4", style="bold green")
     # Safely parse the URL to hide the password
     safe_display = "Not Connected"
     if db_url:
