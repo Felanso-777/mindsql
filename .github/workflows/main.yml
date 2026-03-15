@@ -43,20 +43,11 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        
-        # Windows keeps its original fast wheel installation
-        if [ "${{ matrix.os }}" == "windows-latest" ]; then
+        if [ "${{ runner.os }}" != "macOS" ]; then
           pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-          
-        # macOS keeps its original setup untouched
-        elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-          pip install llama-cpp-python
-          
-        # Ubuntu forces a source build to avoid 'musl' (Alpine) compatibility errors on standard glibc Linux distros
         else
-          pip install llama-cpp-python --no-binary llama-cpp-python
+          pip install llama-cpp-python
         fi
-        
         pip install -r requirements.txt
       shell: bash
 
@@ -64,7 +55,6 @@ jobs:
       run: |
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
-          
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
           # Find the actual path of the llama_cpp package
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp._file_))")
@@ -77,11 +67,8 @@ jobs:
             echo "Metal file NOT found. Building CPU-only version..."
             pyinstaller --onefile --clean --icon="logos/mac.icns" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
           fi
-          
         else
-          # Ubuntu: Explicitly ensure the freshly compiled native libllama.so is bundled
-          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp._file_))")
-          pyinstaller --onefile --clean --add-binary "$LLAMA_PATH/lib/libllama.so:llama_cpp/lib" --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
+          pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
         fi
       shell: bash
 
