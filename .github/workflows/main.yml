@@ -56,9 +56,17 @@ jobs:
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-          # FIX: We find where llama_cpp is and manually add the metal file to the bundle
+          # Find the actual path of the llama_cpp package
           LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
-          pyinstaller --onefile --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
+          
+          # Check if the metal file exists. If it does, add it. If not, build without it (CPU only).
+          if [ -f "$LLAMA_PATH/ggml-metal.metal" ]; then
+            echo "Metal file found at $LLAMA_PATH. Adding to bundle..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
+          else
+            echo "Metal file NOT found. Building CPU-only version..."
+            pyinstaller --onefile --clean --icon="logos/mac.icns" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
+          fi
         else
           pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
         fi
