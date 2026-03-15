@@ -10,13 +10,14 @@ on:
   workflow_dispatch:
 
 jobs:
+
   build:
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os == 'macos-latest' && 'macos-14' || matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        os: [windows-latest, macos-latest]   # ← only removed ubuntu-latest
 
     steps:
     - name: Checkout Code
@@ -56,10 +57,7 @@ jobs:
         if [ "${{ matrix.os }}" == "windows-latest" ]; then
           pyinstaller --onefile --clean --icon="logos/windows.ico" --collect-all llama_cpp --name "MindSQL-windows-latest" main_ac.py
         elif [ "${{ matrix.os }}" == "macos-latest" ]; then
-          # Find the actual path of the llama_cpp package
-          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp.__file__))")
-          
-          # Check if the metal file exists. If it does, add it. If not, build without it (CPU only).
+          LLAMA_PATH=$(python -c "import llama_cpp; import os; print(os.path.dirname(llama_cpp._file_))")
           if [ -f "$LLAMA_PATH/ggml-metal.metal" ]; then
             echo "Metal file found at $LLAMA_PATH. Adding to bundle..."
             pyinstaller --onefile --clean --icon="logos/mac.icns" --add-data "$LLAMA_PATH/ggml-metal.metal:llama_cpp" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
@@ -67,8 +65,6 @@ jobs:
             echo "Metal file NOT found. Building CPU-only version..."
             pyinstaller --onefile --clean --icon="logos/mac.icns" --collect-all llama_cpp --name "MindSQL-macos-latest" main_ac.py
           fi
-        else
-          pyinstaller --onefile --clean --collect-all llama_cpp --name "MindSQL-ubuntu-latest" main_ac.py
         fi
       shell: bash
 
@@ -78,11 +74,56 @@ jobs:
         name: MindSQL-${{ matrix.os }}
         path: dist/MindSQL-*
 
+  # ─────────────────────────────────────────────────────────────────
+  # UBUNTU — manylinux fix (single binary, works on all Linux distros)
+  # ─────────────────────────────────────────────────────────────────
+  build-linux:
+    name: Build for Linux (manylinux)
+    runs-on: ubuntu-latest
+    container:
+      image: quay.io/pypa/manylinux_2_28_x86_64
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Install Build Tools
+      run: yum install -y gcc gcc-c++ make cmake
+
+    - name: Set up Python & Install Dependencies
+      run: |
+        /opt/python/cp311-cp311/bin/python -m pip install --upgrade pip
+        ln -sf /opt/python/cp311-cp311/bin/python /usr/local/bin/python
+        ln -sf /opt/python/cp311-cp311/bin/pip    /usr/local/bin/pip
+        pip install pyinstaller
+        pip install llama-cpp-python
+        pip install -r requirements.txt
+
+    - name: Build with PyInstaller
+      run: |
+        /opt/python/cp311-cp311/bin/pyinstaller \
+          --onefile \
+          --clean \
+          --collect-all llama_cpp \
+          --name "MindSQL-ubuntu-latest" \
+          main_ac.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: MindSQL-ubuntu-latest
+        path: dist/MindSQL-ubuntu-latest
+        if-no-files-found: error
+
+  # ──────────────────────────────────────────
+  # RELEASE — waits for all 3 builds
+  # ──────────────────────────────────────────
   publish:
     name: Create Final Release
-    needs: build
+    needs: [build, build-linux]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+
     steps:
     - name: Download All Artifacts
       uses: actions/download-artifact@v4
@@ -96,6 +137,5 @@ jobs:
           ./all_artifacts/MindSQL-windows-latest/MindSQL-windows-latest.exe
           ./all_artifacts/MindSQL-ubuntu-latest/MindSQL-ubuntu-latest
           ./all_artifacts/MindSQL-macos-latest/MindSQL-macos-latest
-          logos/ubuntu.png
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
