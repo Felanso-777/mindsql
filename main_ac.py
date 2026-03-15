@@ -315,7 +315,7 @@ def print_banner(db_url):
 
     banner_text.append("Mind", style="bold grey66")
     banner_text.append("SQL", style="bold dodger_blue1")
-    banner_text.append(" v1.1.6", style="bold green")
+    banner_text.append(" v1.1.7", style="bold green")
     # Safely parse the URL to hide the password
     safe_display = "Not Connected"
     if db_url:
