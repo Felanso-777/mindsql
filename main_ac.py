@@ -188,7 +188,7 @@ def extract_tables(sql):
         real_name = table.name     
         tables.add(real_name)     #mapping tables from query and adding to set table
         if table.alias:  # determining alias existence
-            alias_map[table.alias.name] = real_name
+            alias_map[table.alias] = real_name
     return tables, alias_map
 
 #--Extract column names from each query--
