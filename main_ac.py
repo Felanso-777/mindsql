@@ -28,7 +28,10 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine.url import make_url
 import warnings
 from sqlalchemy.exc import SAWarning
+import logging
 
+# Mute sqlglot warnings so it doesn't clutter the terminal
+logging.getLogger("sqlglot").setLevel(logging.ERROR)
 # Ignore SQLAlchemy warnings about unrecognized data types (like geometry)
 warnings.filterwarnings("ignore", category=SAWarning)
 from prompt_toolkit import PromptSession
