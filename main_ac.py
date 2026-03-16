@@ -28,7 +28,10 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine.url import make_url
 import warnings
 from sqlalchemy.exc import SAWarning
+import logging
 
+# Mute sqlglot warnings so it doesn't clutter the terminal
+logging.getLogger("sqlglot").setLevel(logging.ERROR)
 # Ignore SQLAlchemy warnings about unrecognized data types (like geometry)
 warnings.filterwarnings("ignore", category=SAWarning)
 from prompt_toolkit import PromptSession
@@ -188,7 +191,7 @@ def extract_tables(sql):
         real_name = table.name     
         tables.add(real_name)     #mapping tables from query and adding to set table
         if table.alias:  # determining alias existence
-            alias_map[table.alias.name] = real_name
+            alias_map[table.alias] = real_name
     return tables, alias_map
 
 #--Extract column names from each query--
@@ -203,65 +206,71 @@ def extract_columns(sql):
 
 #--Validate generated sql alongside the SCHEMA_MAP
 def validate_sql_schema(sql,SCHEMA_MAP):
-    sql_upper  = sql.upper()
-    tables,alias = extract_tables(sql)
-    columns = extract_columns(sql)
-    valid_tables = {}
-    
-    # DDL cmd validation. Asks user permission for structural changes and deletions.
-    forbidden = ["CREATE", "ALTER", "DROP", "DELETE", "RENAME", "TRUNCATE"]
-    if any(keyword in sql_upper for keyword in forbidden):
-        # 1. Print a warning using your existing Rich console
-        console.print("\n[bold red]WARNING:[/bold red] Destructive or structural command detected!")
-        # 2. Ask for explicit user permission
-        choice = input("Are you sure you want to allow this command? (y/n): ").strip().lower()
-        if choice == 'y':
-            return True  # User approved: allow execution and skip normal column checks
-        else:
-            return None # User denied: block execution 
-    # table validation 
-    for table in tables : 
-        matched = None
-        for schema_table in SCHEMA_MAP :
-            if table.lower() == schema_table.lower() :
-                matched = schema_table
-                break
-        if matched is None :
-            return False
-        valid_tables[table]=matched
-    #column & alias validation 
-    for column in columns :
-        col_table = column["table"]
-        col_name = column["column"]
-        # to get the table name from column list of dict. 3 cases : 
-        # case -1 : if alias used , multiple table exist in query
-        if col_table in alias :
-            real_table = alias[col_table]
-        # case -2 : if alias not used , multiple table exist in query
-        elif col_table in valid_tables :
-            real_table = col_table
-        # case -3 : if alias not used , only single exists in query
-        elif not col_table: # <--- FIX: This now catches both None and ""
-            if len(valid_tables) == 1 :
-                real_table = list(valid_tables.keys())[0]
-            else :
-                return False
-        else : 
-            return False
-        #checking if the obtain table exist in the SCHEMA_MAP
-        if real_table not in valid_tables :
-            return False
-        schema_table_name = valid_tables[real_table]
-        schema_columns = SCHEMA_MAP[schema_table_name]["columns"]
-        column_found = False
-        for schema_col in schema_columns :
-            if col_name.lower() == schema_col.lower():
-                column_found = True
-                break
-        if not column_found :
-            return False
-#if no false happens => safe         
-    return True
+    try:
+
+        sql_upper  = sql.upper()
+        tables,alias = extract_tables(sql)
+        columns = extract_columns(sql)
+        valid_tables = {}
+        
+        # DDL cmd validation. Asks user permission for structural changes and deletions.
+        forbidden = ["CREATE", "ALTER", "DROP", "DELETE", "RENAME", "TRUNCATE"]
+        if any(keyword in sql_upper for keyword in forbidden):
+            # 1. Print a warning using your existing Rich console
+            console.print("\n[bold red]WARNING:[/bold red] Destructive or structural command detected!")
+            # 2. Ask for explicit user permission
+            choice = input("Are you sure you want to allow this command? (y/n): ").strip().lower()
+            if choice == 'y':
+                return True  # User approved: allow execution and skip normal column checks
+            else:
+                return None # User denied: block execution 
+        # table validation 
+        for table in tables : 
+            matched = None
+            for schema_table in SCHEMA_MAP :
+                if table.lower() == schema_table.lower() :
+                    matched = schema_table
+                    break
+            if matched is None :
+                continue
+            valid_tables[table]=matched
+        #column & alias validation 
+        for column in columns :
+            col_table = column["table"]
+            col_name = column["column"]
+            if col_name == '*': continue # Ignore COUNT(*)
+            # to get the table name from column list of dict. 3 cases : 
+            # case -1 : if alias used , multiple table exist in query
+            if col_table in alias :
+                real_table = alias[col_table]
+            # case -2 : if alias not used , multiple table exist in query
+            elif col_table in valid_tables :
+                real_table = col_table
+            # case -3 : if alias not used , only single exists in query
+            elif not col_table: # <--- FIX: This now catches both None and ""
+                if len(valid_tables) == 1 :
+                    real_table = list(valid_tables.keys())[0]
+                else :
+                    return f"Ambiguous column '{col_name}'. You must specify the table alias."
+            else : 
+                return f"Table alias '{col_table}' is not recognized."
+            #checking if the obtain table exist in the SCHEMA_MAP
+            if real_table not in valid_tables :
+                continue
+            schema_table_name = valid_tables[real_table]
+            schema_columns = SCHEMA_MAP[schema_table_name]["columns"]
+            column_found = False
+            for schema_col in schema_columns :
+                if col_name.lower() == schema_col.lower():
+                    column_found = True
+                    break
+            if not column_found :
+                # THIS IS THE MAGIC LINE: Returns the exact error!
+                return f"Column '{col_name}' does not exist in table '{schema_table_name}'."
+    #if no false happens => safe         
+        return True
+    except Exception:
+        return True # If sqlglot fails, pass it to MySQL so MySQL can throw the real error
 
 #--Load Schema --
 def load_schema_map(engine):
@@ -294,7 +303,7 @@ def extract_sql(text):
             sql = match.group(1).strip()
         else:
             clean_text = text.strip()
-            keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "SET", "ALTER", "BEGIN", "WITH"]
+            keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "SET", "ALTER", "BEGIN", "WITH", "SHOW", "DESCRIBE", "DESC"]
             if any(clean_text.upper().startswith(k) for k in keywords):
                 sql = clean_text
             else:
@@ -315,7 +324,7 @@ def print_banner(db_url):
 
     banner_text.append("Mind", style="bold grey66")
     banner_text.append("SQL", style="bold dodger_blue1")
-    banner_text.append(" v1.1.7", style="bold green")
+    banner_text.append(" v1.1.8", style="bold green")
     # Safely parse the URL to hide the password
     safe_display = "Not Connected"
     if db_url:
@@ -874,26 +883,47 @@ def shell():
                         console.print(Panel(sql_code.replace("CLARIFICATION_NEEDED:", "").strip(),
                                             title="⚠ Clarification Needed", border_style="yellow"))
                         break
+                    # ---> NEW: Print the SQL immediately! <---
+                    console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), 
+                                        title=f"Plotting SQL (Attempt {attempt+1})", border_style="yellow", box=box.ROUNDED))
 
-                    if validate_plot_sql(sql_code):
-                        console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), title="Plotting SQL", border_style="yellow", box=box.ROUNDED))
-                        
-                        # Wait for the user to type 'y' and hit Enter
-                        choice = input("Run Plot? (y/n): ").strip().lower()
-                        if choice == 'y':
-                            data = execute_sql(engine, sql_code, return_data=True)
-                            if data: 
-                                draw_ascii_bar_chart(data)
-                        
-                        plot_success = True
-                        break  # Exit the retry loop
-                    else:
+
+                    # 1. Format Validation (Must have LABEL and VALUE)
+                    if not validate_plot_sql(sql_code):
                         if attempt < MAX_RETRIES - 1:
                             messages.append({'role': 'assistant', 'content': sql_code})
                             messages.append({'role': 'user', 'content': "ERROR: Return exactly 2 cols: LABEL and aggregated VALUE."})
+                        continue
+
+                    # 2. Schema Validation (Must use real tables/columns)
+                    is_valid = validate_sql_schema(sql_code, SCHEMA_MAP)
+                    if is_valid is None:
+                        break 
+
+                    if is_valid is not True:
+                        console.print(Panel(
+                            f"[bold red]Schema Validation Failed[/bold red]\n{is_valid}",
+                            style="red"
+                        ))
+                        if attempt < MAX_RETRIES - 1:
+                            messages.append({'role': 'assistant', 'content': sql_code})
+                            messages.append({'role': 'user', 'content': f"Schema Validation Failed: {is_valid}. Check the schema and rewrite the query. Keep the LABEL and VALUE aliases!"})
+                        continue
+
+                    # 3. If it passes BOTH validations, show it and run
                 
+                    
+                    choice = input("Run Plot? (y/n): ").strip().lower()
+                    if choice == 'y':
+                        data = execute_sql(engine, sql_code, return_data=True)
+                        if data is not None: 
+                            draw_ascii_bar_chart(data)
+                    
+                    plot_success = True
+                    break  # Exit the retry loop
+                    
                 if not plot_success and sql_code and not sql_code.startswith("CLARIFICATION_NEEDED:"):
-                    console.print("[red]Plot failed after retries. Invalid plot SQL. Must return LABEL + VALUE only.[/red]")
+                    console.print("[red]Plot failed after retries. Invalid plot SQL.[/red]")
                 continue
                 #--reptition 1 end---
 
@@ -940,6 +970,7 @@ def shell():
                         "2. Verify all columns exist in the schema before using them.\n"
                         "3. Use exact table and column names from the schema.\n"
                         "4. STRICTLY use only the exact column names requested. DO NOT add unrequested columns, IDs, or timestamps.\n"
+                        "5. ALIAS ACCURACY: You must strictly match every column to its correct table alias. Double-check the schema to see which table actually owns the column.\n"
                         f"\nContext:\n{schema_context}"
                     )},
                     {'role': 'user', 'content': natural_prompt}
@@ -966,25 +997,34 @@ def shell():
                                 break # Exits the retry loop
                         # This finds any 'VARCHAR' not followed by a '(' and forces it to 'VARCHAR(255)'
                         generated_sql = re.sub(r'(?i)\bVARCHAR\b(?!\s*\()', 'VARCHAR(255)', generated_sql)
+                        # ---> NEW: Print the SQL immediately! <---
+                        console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
+                                        title=f"Generated SQL (Attempt {attempt+1})", border_style="yellow", box=box.ROUNDED))
 
 
-                    console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
-                                        title="Generated SQL", border_style="yellow", box=box.ROUNDED))
 
-                    if input("Execute SQL? (y/n): ").strip().lower() != 'y':
-                        break
+                    
                      # VALIDATE BEFORE EXECUTE
                     is_valid = validate_sql_schema(generated_sql, SCHEMA_MAP) 
                     
                     if is_valid is None:
                         break
 
-                    if is_valid is False:
+                    # If it's not True, it means it returned our specific error string!
+                    if is_valid is not True: 
                         console.print(Panel(
-                            "[bold red]Schema Validation Failed[/bold red]",
+                            f"[bold red]Schema Validation Failed[/bold red]\n{is_valid}",
                             style="red"
                         ))
+                        
+                        # Feed the EXACT error string back to the AI dynamically
+                        if attempt < MAX_RETRIES - 1:
+                            messages.append({'role': 'assistant', 'content': generated_sql})
+                            messages.append({'role': 'user', 'content': f"Schema Validation Failed: {is_valid}. Please check the schema and rewrite the query to fix this."})
                         continue
+                    # 2. ONLY ASK THE USER IF IT PASSES VALIDATION
+                    if input("Execute SQL? (y/n): ").strip().lower() != 'y':
+                        break
 
 
                     try:
