@@ -300,7 +300,7 @@ def extract_sql(text):
             sql = match.group(1).strip()
         else:
             clean_text = text.strip()
-            keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "SET", "ALTER", "BEGIN", "WITH"]
+            keywords = ["SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "DROP", "SET", "ALTER", "BEGIN", "WITH", "SHOW", "DESCRIBE", "DESC"]
             if any(clean_text.upper().startswith(k) for k in keywords):
                 sql = clean_text
             else:
@@ -880,26 +880,47 @@ def shell():
                         console.print(Panel(sql_code.replace("CLARIFICATION_NEEDED:", "").strip(),
                                             title="⚠ Clarification Needed", border_style="yellow"))
                         break
+                    # ---> NEW: Print the SQL immediately! <---
+                    console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), 
+                                        title=f"Plotting SQL (Attempt {attempt+1})", border_style="yellow", box=box.ROUNDED))
 
-                    if validate_plot_sql(sql_code):
-                        console.print(Panel(Syntax(sql_code, "sql", theme="monokai"), title="Plotting SQL", border_style="yellow", box=box.ROUNDED))
-                        
-                        # Wait for the user to type 'y' and hit Enter
-                        choice = input("Run Plot? (y/n): ").strip().lower()
-                        if choice == 'y':
-                            data = execute_sql(engine, sql_code, return_data=True)
-                            if data: 
-                                draw_ascii_bar_chart(data)
-                        
-                        plot_success = True
-                        break  # Exit the retry loop
-                    else:
+
+                    # 1. Format Validation (Must have LABEL and VALUE)
+                    if not validate_plot_sql(sql_code):
                         if attempt < MAX_RETRIES - 1:
                             messages.append({'role': 'assistant', 'content': sql_code})
                             messages.append({'role': 'user', 'content': "ERROR: Return exactly 2 cols: LABEL and aggregated VALUE."})
+                        continue
+
+                    # 2. Schema Validation (Must use real tables/columns)
+                    is_valid = validate_sql_schema(sql_code, SCHEMA_MAP)
+                    if is_valid is None:
+                        break 
+
+                    if is_valid is not True:
+                        console.print(Panel(
+                            f"[bold red]Schema Validation Failed[/bold red]\n{is_valid}",
+                            style="red"
+                        ))
+                        if attempt < MAX_RETRIES - 1:
+                            messages.append({'role': 'assistant', 'content': sql_code})
+                            messages.append({'role': 'user', 'content': f"Schema Validation Failed: {is_valid}. Check the schema and rewrite the query. Keep the LABEL and VALUE aliases!"})
+                        continue
+
+                    # 3. If it passes BOTH validations, show it and run
                 
+                    
+                    choice = input("Run Plot? (y/n): ").strip().lower()
+                    if choice == 'y':
+                        data = execute_sql(engine, sql_code, return_data=True)
+                        if data is not None: 
+                            draw_ascii_bar_chart(data)
+                    
+                    plot_success = True
+                    break  # Exit the retry loop
+                    
                 if not plot_success and sql_code and not sql_code.startswith("CLARIFICATION_NEEDED:"):
-                    console.print("[red]Plot failed after retries. Invalid plot SQL. Must return LABEL + VALUE only.[/red]")
+                    console.print("[red]Plot failed after retries. Invalid plot SQL.[/red]")
                 continue
                 #--reptition 1 end---
 
@@ -973,10 +994,11 @@ def shell():
                                 break # Exits the retry loop
                         # This finds any 'VARCHAR' not followed by a '(' and forces it to 'VARCHAR(255)'
                         generated_sql = re.sub(r'(?i)\bVARCHAR\b(?!\s*\()', 'VARCHAR(255)', generated_sql)
+                        # ---> NEW: Print the SQL immediately! <---
+                        console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
+                                        title=f"Generated SQL (Attempt {attempt+1})", border_style="yellow", box=box.ROUNDED))
 
 
-                    console.print(Panel(Syntax(generated_sql, "sql", theme="monokai"),
-                                        title="Generated SQL", border_style="yellow", box=box.ROUNDED))
 
                     
                      # VALIDATE BEFORE EXECUTE
